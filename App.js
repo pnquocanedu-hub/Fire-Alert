@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "./firebaseConfig";
 import {
@@ -12,7 +12,17 @@ import {
   Alert,
   StatusBar,
 } from "react-native";
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+} from "firebase/firestore";
 
+import { db } from "./firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 
 function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
@@ -132,12 +142,131 @@ export default function App() {
   // Dữ liệu cảm biến mẫu
   // Sau này sẽ thay bằng dữ liệu Firebase / MQTT
   const [sensorData, setSensorData] = useState({
-    gas: 1020,
-    temperature: 60,
+    gas: 0,
+    temperature: 0,
     flame: false,
     esp32: true,
   });
+  const [historyData, setHistoryData] = useState([]);
+  const [selectedHistory, setSelectedHistory] = useState(null);
+  // =====================================================
+  // NHẬN DỮ LIỆU REALTIME TỪ FIREBASE
+  // =====================================================
 
+  useEffect(() => {
+    // Chưa đăng nhập thì không đọc Firebase
+    if (!isLoggedIn) return;
+
+    const q = query(
+      collection(db, "sensor_data"),
+      orderBy("timestamp", "desc"),
+      limit(1),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const data = snapshot.docs[0].data();
+
+          console.log("Dữ liệu nhận từ Firebase:", data);
+
+          setSensorData({
+            gas: data.gas ?? 0,
+            temperature: data.temperature ?? 0,
+            flame: data.flame ?? false,
+            esp32: data.esp32 ?? false,
+          });
+        }
+      },
+      (error) => {
+        console.log("Lỗi đọc dữ liệu Firebase:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [isLoggedIn]);
+
+  //====================================
+  // NUT NHẤN LƯU DỮ LIỆU LÊN FIREBASE ĐỂ TEST
+  //=======================================
+
+  // const saveSensorData = async () => {
+  //   try {
+  //     await addDoc(collection(db, "sensor_data"), {
+  //       gas: sensorData.gas,
+  //       temperature: sensorData.temperature,
+  //       flame: sensorData.flame,
+  //       esp32: sensorData.esp32,
+  //       timestamp: serverTimestamp(),
+  //     });
+
+  //     Alert.alert("Thành công", "Đã lưu dữ liệu lên Firebase");
+  //   } catch (error) {
+  //     console.log("Firestore Error:", error);
+  //     Alert.alert("Lỗi", "Không thể lưu dữ liệu");
+  //   }
+  // };
+
+  // =====================================================
+  // ĐỌC LỊCH SỬ TỪ FIREBASE
+  // =====================================================
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const q = query(
+      collection(db, "sensor_data"),
+      orderBy("timestamp", "desc"),
+      limit(50),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const history = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          let type = "normal";
+          let title = "NORMAL";
+
+          // FIRE
+          if (
+            data.flame === true ||
+            (data.temperature > 55 && data.gas > 1000)
+          ) {
+            type = "fire";
+            title = "FIRE WARNING";
+          }
+
+          // GAS
+          else if (data.gas >= 300) {
+            type = "gas";
+            title = "GAS WARNING";
+          }
+
+          return {
+            id: doc.id,
+            type,
+            title,
+            gas: data.gas ?? 0,
+            temperature: data.temperature ?? 0,
+            flame: data.flame ?? false,
+            esp32: data.esp32 ?? false,
+            timestamp: data.timestamp,
+          };
+        });
+
+        setHistoryData(history);
+
+        console.log("Lịch sử Firebase:", history);
+      },
+      (error) => {
+        console.log("Lỗi đọc lịch sử Firebase:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [isLoggedIn]);
   // =====================================================
   // XÁC ĐỊNH TRẠNG THÁI CẢNH BÁO
   // =====================================================
@@ -268,6 +397,10 @@ export default function App() {
             value={sensorData.esp32 ? "ESP32 online" : "ESP32 offline"}
             valueColor={sensorData.esp32 ? "#198754" : "#E53935"}
           />
+          {/*NÚT NHẤN LƯU DỮ LIỆU
+           <TouchableOpacity style={styles.loginButton} onPress={saveSensorData}>
+            <Text style={styles.loginButtonText}>Lưu dữ liệu Firebase</Text>
+          </TouchableOpacity> */}
         </ScrollView>
       </View>
     );
@@ -294,6 +427,7 @@ export default function App() {
   // =====================================================
 
   const FireWarningScreen = () => {
+    const data = selectedHistory || sensorData;
     return (
       <View style={styles.screenContainer}>
         <ScreenHeader title="Cảnh báo" />
@@ -311,7 +445,7 @@ export default function App() {
               icon="flask"
               iconColor="#222"
               name="Gas"
-              value={`${sensorData.gas} ppm`}
+              value={`${data.gas} ppm`}
               valueColor="#E53935"
             />
 
@@ -319,7 +453,7 @@ export default function App() {
               icon="thermometer"
               iconColor="#E53935"
               name="Nhiệt độ"
-              value={`${sensorData.temperature} °C`}
+              value={`${data.temperature} °C`}
               valueColor="#E53935"
             />
 
@@ -327,7 +461,7 @@ export default function App() {
               icon="flame"
               iconColor="#E53935"
               name="Ngọn lửa"
-              value={sensorData.flame ? "Có" : "Không"}
+              value={data.flame ? "Có" : "Không"}
               valueColor="#E53935"
             />
 
@@ -335,15 +469,30 @@ export default function App() {
               icon="wifi"
               iconColor="#32CD32"
               name="Trạng thái"
-              value="ESP32 online"
-              valueColor="#198754"
+              value={data.esp32 ? "ESP32 online" : "ESP32 offline"}
+              valueColor={data.esp32 ? "#198754" : "#E53935"}
             />
 
             {/* THỜI GIAN */}
             <View style={styles.timeRow}>
               <Ionicons name="time" size={18} color="#222" />
 
-              <Text style={styles.timeText}>12/07/2025 9:41:30</Text>
+              <Text style={styles.timeText}>
+                {data.timestamp
+                  ? `${String(data.timestamp.toDate().getDate()).padStart(2, "0")}/${String(
+                      data.timestamp.toDate().getMonth() + 1,
+                    ).padStart(
+                      2,
+                      "0",
+                    )}/${data.timestamp.toDate().getFullYear()} ${String(
+                      data.timestamp.toDate().getHours(),
+                    ).padStart(2, "0")}:${String(
+                      data.timestamp.toDate().getMinutes(),
+                    ).padStart(2, "0")}:${String(
+                      data.timestamp.toDate().getSeconds(),
+                    ).padStart(2, "0")}`
+                  : "Đang cập nhật..."}
+              </Text>
             </View>
           </View>
 
@@ -364,6 +513,7 @@ export default function App() {
   // =====================================================
 
   const GasWarningScreen = () => {
+    const data = selectedHistory || sensorData;
     return (
       <View style={styles.screenContainer}>
         <ScreenHeader title="Cảnh báo" />
@@ -381,7 +531,7 @@ export default function App() {
               icon="flask"
               iconColor="#222"
               name="Gas"
-              value={`${sensorData.gas} ppm`}
+              value={`${data.gas} ppm`}
               valueColor="#E53935"
             />
 
@@ -389,22 +539,22 @@ export default function App() {
               icon="thermometer"
               iconColor="#E53935"
               name="Nhiệt độ"
-              value={`${sensorData.temperature} °C`}
+              value={`${data.temperature} °C`}
             />
 
             <SensorRow
               icon="flame"
               iconColor="#E53935"
               name="Ngọn lửa"
-              value="Không"
+              value={data.flame ? "Có" : "Không"}
             />
 
             <SensorRow
               icon="wifi"
               iconColor="#32CD32"
               name="Trạng thái"
-              value="ESP32 online"
-              valueColor="#198754"
+              value={data.esp32 ? "ESP32 online" : "ESP32 offline"}
+              valueColor={data.esp32 ? "#198754" : "#E53935"}
             />
 
             <View style={styles.timeRow}>
@@ -430,49 +580,101 @@ export default function App() {
   // =====================================================
 
   const HistoryScreen = () => {
+    const formatTime = (timestamp) => {
+      if (!timestamp) {
+        return "Đang cập nhật...";
+      }
+
+      const date = timestamp.toDate();
+
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = date.getFullYear();
+
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      const seconds = String(date.getSeconds()).padStart(2, "0");
+
+      return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+    };
+
     return (
       <View style={styles.screenContainer}>
         <ScreenHeader title="Lịch sử" />
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* FIRE WARNING */}
-          <TouchableOpacity
-            style={[styles.historyItem, styles.fireHistory]}
-            onPress={() => setCurrentScreen("fireWarning")}
-          >
-            <View style={styles.historyHeader}>
-              <Ionicons name="flame" size={20} color="#E53935" />
+          {historyData.length === 0 ? (
+            <View style={{ alignItems: "center", marginTop: 50 }}>
+              <Ionicons name="time-outline" size={45} color="#BBBBBB" />
 
-              <Text style={styles.fireHistoryText}>FIRE WARNING</Text>
+              <Text
+                style={{
+                  marginTop: 10,
+                  fontSize: 14,
+                  color: "#777",
+                }}
+              >
+                Chưa có dữ liệu lịch sử
+              </Text>
             </View>
+          ) : (
+            historyData.map((item) => {
+              let itemStyle = styles.normalHistory;
+              let textStyle = styles.normalHistoryText;
+              let icon = "checkmark-circle";
+              let iconColor = "#198754";
 
-            <Text style={styles.historyTime}>12/07/2025 9:41:30</Text>
-          </TouchableOpacity>
+              if (item.type === "fire") {
+                itemStyle = styles.fireHistory;
+                textStyle = styles.fireHistoryText;
+                icon = "flame";
+                iconColor = "#E53935";
+              }
 
-          {/* GAS WARNING */}
-          <TouchableOpacity
-            style={[styles.historyItem, styles.gasHistory]}
-            onPress={() => setCurrentScreen("gasWarning")}
-          >
-            <View style={styles.historyHeader}>
-              <Ionicons name="warning" size={20} color="#F0A500" />
+              if (item.type === "gas") {
+                itemStyle = styles.gasHistory;
+                textStyle = styles.gasHistoryText;
+                icon = "warning";
+                iconColor = "#F0A500";
+              }
 
-              <Text style={styles.gasHistoryText}>GAS WARNING</Text>
-            </View>
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.historyItem, itemStyle]}
+                  onPress={() => {
+                    setSelectedHistory(item);
 
-            <Text style={styles.historyTime}>12/07/2025 9:00:00</Text>
-          </TouchableOpacity>
+                    if (item.type === "fire") {
+                      setCurrentScreen("fireWarning");
+                    } else if (item.type === "gas") {
+                      setCurrentScreen("gasWarning");
+                    }
+                  }}
+                >
+                  <View style={styles.historyHeader}>
+                    <Ionicons name={icon} size={20} color={iconColor} />
 
-          {/* NORMAL */}
-          <TouchableOpacity style={[styles.historyItem, styles.normalHistory]}>
-            <View style={styles.historyHeader}>
-              <Ionicons name="checkmark-circle" size={20} color="#198754" />
+                    <Text style={textStyle}>{item.title}</Text>
+                  </View>
 
-              <Text style={styles.normalHistoryText}>NORMAL</Text>
-            </View>
+                  <Text style={styles.historyTime}>
+                    {formatTime(item.timestamp)}
+                  </Text>
 
-            <Text style={styles.historyTime}>11/07/2025 22:22:00</Text>
-          </TouchableOpacity>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#666",
+                      marginTop: 5,
+                    }}
+                  >
+                    Gas: {item.gas} ppm | Nhiệt độ: {item.temperature} °C
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+          )}
         </ScrollView>
       </View>
     );
