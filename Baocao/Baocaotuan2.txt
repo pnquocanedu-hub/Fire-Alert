@@ -1,0 +1,10 @@
+Kế hoạch tuần 2:
+
+Nhiệm vụ cần đạt được:
+
+1.Chốt được các thiết bị phần cứng (như các cảm biến khói, lửa, esp32, led, còi,...)
+2.Hình thành sơ đồ kết nối phần cứng (có thể thực hiện trên web/app)
+3.Hoàn thiện sơ lược về phần code của HW
+4.Nghiên cứu và chốt dữ liệu về các mức ngưỡng của cảnh báo (ví dụ các mức an toàn, cảnh báo có khí gas, cảnh báo cháy,...)
+5.Phân tích các chức năng cụ thể của app
+6.Thiết kế sơ lược giao diện của app
