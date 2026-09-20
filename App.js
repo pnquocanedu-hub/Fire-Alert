@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "./firebaseConfig";
 import {
@@ -21,8 +21,8 @@ import {
   limit,
   onSnapshot,
 } from "firebase/firestore";
-
-import { db } from "./firebaseConfig";
+import { ref, onValue } from "firebase/database";
+import { db, rtdb } from "./firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 
 function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
@@ -149,6 +149,70 @@ export default function App() {
   });
   const [historyData, setHistoryData] = useState([]);
   const [selectedHistory, setSelectedHistory] = useState(null);
+  const lastAlertRef = useRef(null);
+
+  const processSensorData = async (data) => {
+    let alertType = null;
+
+    // =========================
+    // XÁC ĐỊNH CẢNH BÁO
+    // =========================
+
+    // 1. Có lửa
+    if (data.flame === true) {
+      alertType = "fire";
+    }
+
+    // 2. Nhiệt độ cao + gas cao
+    else if (data.temperature > 55 && data.gas > 1000) {
+      alertType = "fire";
+    }
+
+    // 3. Gas cao
+    else if (data.gas >= 300) {
+      alertType = "gas";
+    }
+
+    // =========================
+    // KHÔNG CÓ CẢNH BÁO
+    // =========================
+
+    if (!alertType) {
+      lastAlertRef.current = null;
+      return;
+    }
+
+    // =========================
+    // ĐANG CÙNG MỘT CẢNH BÁO
+    // KHÔNG LƯU LẠI
+    // =========================
+
+    if (lastAlertRef.current === alertType) {
+      return;
+    }
+
+    // Ghi nhớ loại cảnh báo hiện tại
+    lastAlertRef.current = alertType;
+
+    // =========================
+    // LƯU VÀO FIRESTORE
+    // =========================
+
+    try {
+      await addDoc(collection(db, "alert_history"), {
+        type: alertType,
+        gas: data.gas,
+        temperature: data.temperature,
+        flame: data.flame,
+        esp32: data.esp32,
+        timestamp: serverTimestamp(),
+      });
+
+      console.log("Đã lưu lịch sử cảnh báo:", alertType);
+    } catch (error) {
+      console.log("Lỗi lưu lịch sử Firestore:", error);
+    }
+  };
   // =====================================================
   // NHẬN DỮ LIỆU REALTIME TỪ FIREBASE
   // =====================================================
@@ -157,56 +221,40 @@ export default function App() {
     // Chưa đăng nhập thì không đọc Firebase
     if (!isLoggedIn) return;
 
-    const q = query(
-      collection(db, "sensor_data"),
-      orderBy("timestamp", "desc"),
-      limit(1),
-    );
+    const systemRef = ref(rtdb, "HeThong");
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const data = snapshot.docs[0].data();
+    const unsubscribe = onValue(
+      systemRef,
+      async (snapshot) => {
+        const data = snapshot.val();
 
-          console.log("Dữ liệu nhận từ Firebase:", data);
+        if (!data) return;
 
-          setSensorData({
-            gas: data.gas ?? 0,
-            temperature: data.temperature ?? 0,
-            flame: data.flame ?? false,
-            esp32: data.esp32 ?? false,
-          });
-        }
+        console.log("Dữ liệu nhận từ RTDB:", data);
+
+        const sensor = data.ThongSo_CamBien ?? {};
+        const device = data.TinhTrang_ThietBi ?? {};
+
+        const newSensorData = {
+          gas: sensor.NongDo_Gas_ADC ?? 0,
+          temperature: sensor.NhietDo_C ?? 0,
+          flame: sensor.PhatHienLua ?? false,
+          esp32: device.ESP32 === "Online",
+        };
+
+        // Cập nhật dữ liệu realtime cho Dashboard
+        setSensorData(newSensorData);
+
+        // Kiểm tra và lưu lịch sử nếu có cảnh báo
+        await processSensorData(newSensorData);
       },
       (error) => {
-        console.log("Lỗi đọc dữ liệu Firebase:", error);
+        console.log("Lỗi đọc RTDB:", error);
       },
     );
 
     return () => unsubscribe();
   }, [isLoggedIn]);
-
-  //====================================
-  // NUT NHẤN LƯU DỮ LIỆU LÊN FIREBASE ĐỂ TEST
-  //=======================================
-
-  // const saveSensorData = async () => {
-  //   try {
-  //     await addDoc(collection(db, "sensor_data"), {
-  //       gas: sensorData.gas,
-  //       temperature: sensorData.temperature,
-  //       flame: sensorData.flame,
-  //       esp32: sensorData.esp32,
-  //       timestamp: serverTimestamp(),
-  //     });
-
-  //     Alert.alert("Thành công", "Đã lưu dữ liệu lên Firebase");
-  //   } catch (error) {
-  //     console.log("Firestore Error:", error);
-  //     Alert.alert("Lỗi", "Không thể lưu dữ liệu");
-  //   }
-  // };
 
   // =====================================================
   // ĐỌC LỊCH SỬ TỪ FIREBASE
@@ -214,8 +262,9 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn) return;
+
     const q = query(
-      collection(db, "sensor_data"),
+      collection(db, "alert_history"),
       orderBy("timestamp", "desc"),
       limit(50),
     );
@@ -226,28 +275,10 @@ export default function App() {
         const history = snapshot.docs.map((doc) => {
           const data = doc.data();
 
-          let type = "normal";
-          let title = "NORMAL";
-
-          // FIRE
-          if (
-            data.flame === true ||
-            (data.temperature > 55 && data.gas > 1000)
-          ) {
-            type = "fire";
-            title = "FIRE WARNING";
-          }
-
-          // GAS
-          else if (data.gas >= 300) {
-            type = "gas";
-            title = "GAS WARNING";
-          }
-
           return {
             id: doc.id,
-            type,
-            title,
+            type: data.type,
+            title: data.type === "fire" ? "FIRE WARNING" : "GAS WARNING",
             gas: data.gas ?? 0,
             temperature: data.temperature ?? 0,
             flame: data.flame ?? false,
@@ -258,10 +289,10 @@ export default function App() {
 
         setHistoryData(history);
 
-        console.log("Lịch sử Firebase:", history);
+        console.log("Lịch sử Firestore:", history);
       },
       (error) => {
-        console.log("Lỗi đọc lịch sử Firebase:", error);
+        console.log("Lỗi đọc lịch sử Firestore:", error);
       },
     );
 
@@ -560,7 +591,22 @@ export default function App() {
             <View style={styles.timeRow}>
               <Ionicons name="time" size={18} color="#222" />
 
-              <Text style={styles.timeText}>12/07/2025 9:41:30</Text>
+              <Text style={styles.timeText}>
+                {data.timestamp
+                  ? `${String(data.timestamp.toDate().getDate()).padStart(2, "0")}/${String(
+                      data.timestamp.toDate().getMonth() + 1,
+                    ).padStart(
+                      2,
+                      "0",
+                    )}/${data.timestamp.toDate().getFullYear()} ${String(
+                      data.timestamp.toDate().getHours(),
+                    ).padStart(2, "0")}:${String(
+                      data.timestamp.toDate().getMinutes(),
+                    ).padStart(2, "0")}:${String(
+                      data.timestamp.toDate().getSeconds(),
+                    ).padStart(2, "0")}`
+                  : "Đang cập nhật..."}
+              </Text>
             </View>
           </View>
 
