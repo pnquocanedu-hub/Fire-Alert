@@ -5,7 +5,7 @@
 
 void Task_Firebase(void *pvParameters);
 
-=======
+
 #ifndef FIREBASE_MANAGER_H
 #define FIREBASE_MANAGER_H
 
@@ -13,4 +13,5 @@ void Task_Firebase(void *pvParameters);
 
 void Task_Firebase(void *pvParameters);
 
+#endif
 #endif

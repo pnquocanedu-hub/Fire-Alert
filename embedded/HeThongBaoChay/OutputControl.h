@@ -9,7 +9,7 @@ extern volatile bool relayError;
 
 void Task_OutputControl(void *pvParameters);
 
-=======
+
 #ifndef OUTPUT_CONTROL_H
 #define OUTPUT_CONTROL_H
 
@@ -19,4 +19,5 @@ void initOutputs();
 
 void Task_OutputControl(void *pvParameters);
 
+#endif
 #endif

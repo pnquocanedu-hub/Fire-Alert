@@ -29,7 +29,7 @@ const char *getStateString(SystemState state);
 
 void Task_LogicControl(void *pvParameters);
 
-=======
+
 #ifndef SYSTEM_LOGIC_H
 #define SYSTEM_LOGIC_H
 
@@ -61,4 +61,5 @@ const char *getStateString(SystemState state);
 
 void Task_LogicControl(void *pvParameters);
 
+#endif
 #endif

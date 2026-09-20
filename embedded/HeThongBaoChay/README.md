@@ -14,11 +14,11 @@ Dự án Hệ thống báo cháy và cảnh báo rò rỉ khí Gas thông minh, 
 
 ## Phần 1: Tổng quan Hệ thống (System Overview)
 
-1. **Chức năng chính:** Giám sát nồng độ khí Gas (MQ-2), nhiệt độ/độ ẩm (DHT11), và phát hiện tia lửa (Flame Sensor). Khi có dấu hiệu nguy hiểm, hệ thống tự động hú còi, kích hoạt bơm nước/van chữa cháy (Relay) và gửi cảnh báo qua App thông qua Firebase.
+1. **Chức năng chính:** Giám sát nồng độ khí Gas (MQ-2), nhiệt độ (DS18B20), và phát hiện tia lửa (Flame Sensor). Khi có dấu hiệu nguy hiểm, hệ thống tự động hú còi, kích hoạt bơm nước/van chữa cháy (Relay) và gửi cảnh báo qua App thông qua Firebase.
 2. **Nguyên lý hoạt động tổng thể:** ESP32 thu thập dữ liệu từ các cảm biến. Nếu các chỉ số vượt ngưỡng an toàn, máy trạng thái (State Machine) sẽ chuyển sang chế độ cảnh báo hoặc nguy hiểm, đồng thời điều khiển phần cứng đầu ra và lập tức cập nhật dữ liệu lên cloud.
 3. **Danh sách linh kiện:**
    * Vi điều khiển: NodeMCU ESP32 (Dual-Core).
-   * Cảm biến: Cảm biến khí Gas MQ-2, Cảm biến nhiệt độ DHT11, Cảm biến lửa KY-026.
+   * Cảm biến: Cảm biến khí Gas MQ-2, Cảm biến nhiệt độ DS18B20, Cảm biến lửa KY-026.
    * Cảnh báo: Còi Buzzer 5V, Module Relay 1 kênh (điều khiển bơm).
    * Chỉ thị: 4 Đèn LED (Xanh, Vàng, Cam, Đỏ).
 
@@ -31,7 +31,7 @@ Dự án Hệ thống báo cháy và cảnh báo rò rỉ khí Gas thông minh, 
    | :--- | :--- | :--- | :--- |
    | **Cảm biến Gas MQ-2** | `GPIO 34` | Analog (ADC) | Nối với trở 10k xuống GND |
    | **Cảm biến Lửa** | `GPIO 35` | Digital | `HIGH` = Có lửa |
-   | **Cảm biến DHT11** | `GPIO 4` | Digital | |
+   | **Cảm biến DS18B20** | `GPIO 4` | Digital | Cần điện trở kéo lên 4.7kΩ nối với VCC |
    | **Còi Buzzer** | `GPIO 18` | Digital Output | |
    | **Kích hoạt Relay** | `GPIO 5` | Digital Output | |
    | **Phản hồi Relay** | `GPIO 26` | Digital Input | Kiểm tra Relay có đóng thực tế không |
@@ -71,7 +71,7 @@ Dự án Hệ thống báo cháy và cảnh báo rò rỉ khí Gas thông minh, 
 ## Phần 5: Hướng dẫn Cài đặt & Triển khai (Setup & Deployment)
 
 1. **Môi trường phát triển:** Arduino IDE.
-2. **Danh sách thư viện:** Thư viện `Firebase ESP Client`, thư viện `DHT sensor library` của Adafruit.
+2. **Danh sách thư viện:** Thư viện `Firebase ESP Client`, thư viện `OneWire` và `DallasTemperature`.
 3. **Cấu hình thông số:** Mở file `Config.h` để thiết lập:
    ```cpp
    #define WIFI_SSID "Tên_WiFi_của_bạn"
@@ -89,14 +89,12 @@ Dự án Hệ thống báo cháy và cảnh báo rò rỉ khí Gas thông minh, 
 1. **Tự động phát hiện lỗi Relay (Bơm nước/Van):** 
    * **Cách kiểm tra:** Mạch áp dụng cơ chế phản hồi vòng kín (Closed-loop feedback). Vi điều khiển xuất lệnh điều khiển bơm qua `GPIO 5`, đồng thời đọc ngược tín hiệu vật lý từ tiếp điểm của Relay về `GPIO 26`. 
    * **Bắt lỗi:** Nếu có lệnh Bật (ON) nhưng chân phản hồi trả về trạng thái Tắt (OFF), hệ thống lập tức hiểu rằng cuộn hút Relay bị hỏng hoặc dây tín hiệu bị đứt, biến `relayError` sẽ được bật lên `true` để báo về App.
-2. **Phát hiện hỏng hóc Cảm biến DHT11:** 
-   * **Cách kiểm tra:** DHT11 rất dễ bị treo hoặc mất tín hiệu nếu chập chờn dây dẫn. Hệ thống liên tục kiểm tra kết quả đọc.
-   * **Bắt lỗi:** Hàm đọc sẽ kiểm tra tính hợp lệ `isnan()`. Nếu DHT11 không trả về dữ liệu 3 lần liên tiếp (tương đương 6 giây), hệ thống sẽ cảnh báo mất kết nối cảm biến bằng biến `sensorError = true` và in log ra Serial.
+2. **Phát hiện hỏng hóc Cảm biến DS18B20:** 
+   * **Cách kiểm tra:** DS18B20 có thể bị treo hoặc mất tín hiệu nếu chập chờn dây dẫn. Hệ thống liên tục kiểm tra kết quả đọc.
+   * **Bắt lỗi:** Hàm đọc sẽ kiểm tra tính hợp lệ qua giá trị trả về `DEVICE_DISCONNECTED_C` (-127°C). Nếu DS18B20 không trả về dữ liệu đúng 3 lần liên tiếp (tương đương 3 giây), hệ thống sẽ cảnh báo mất kết nối cảm biến bằng biến `sensorError = true` và in log ra Serial.
 3. **Chẩn đoán Cảm biến khí Gas (MQ-2):** 
    * **Cách kiểm tra:** Cảm biến sử dụng giao tiếp Analog (ADC 12-bit). Lúc mới khởi động cần 60 giây làm nóng (`MQ2_WARMUP_TIME`), hệ thống sẽ bỏ qua dữ liệu để tránh báo giả.
    * **Bắt lỗi vật lý:** Nếu dây cáp tín hiệu Gas bị đứt hẳn, giá trị ADC thường sẽ tụt về `0`. Nếu dây bị chập nguồn, ADC sẽ max `4095`. Hệ thống có thể dùng dữ liệu này để biết cảm biến đã bị vô hiệu hóa vật lý. Ngoài ra, thuật toán *Lọc mút số mũ (EMA)* được áp dụng để loại bỏ các đỉnh nhiễu (Spike) do luồng gió tạt qua.
 
 4. **Kịch bản ngoại lệ về Mạng (WiFi):**
    * **Mất kết nối:** Do module mạng nằm riêng trên Core 0 của vi điều khiển (FreeRTOS), nếu rớt mạng WiFi, các Core xử lý vật lý (Core 1) vẫn hoạt động hoàn toàn bình thường. Hệ thống vẫn phát hiện cháy, hú còi và bật bơm nước tại chỗ mà không bị treo.
-=======
-
