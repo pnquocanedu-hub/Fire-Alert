@@ -11,6 +11,8 @@ import {
   ScrollView,
   Alert,
   StatusBar,
+  Modal,
+  Linking,
 } from "react-native";
 import {
   collection,
@@ -29,18 +31,13 @@ function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
   return (
     <View style={styles.loginContainer}>
       <StatusBar barStyle="dark-content" />
-
-      {/* LOGO */}
       <Image
         source={require("./assets/logo-removebg-preview.png")}
         style={styles.loginLogo}
         resizeMode="contain"
       />
-
-      {/* TÊN APP */}
       <Text style={styles.loginTitle}>Fire Alert</Text>
 
-      {/* EMAIL */}
       <TextInput
         style={styles.loginInput}
         placeholder="Email"
@@ -51,7 +48,6 @@ function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
         autoCapitalize="none"
       />
 
-      {/* PASSWORD */}
       <TextInput
         style={styles.loginInput}
         placeholder="Mật khẩu"
@@ -61,33 +57,20 @@ function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
         secureTextEntry={true}
       />
 
-      {/* QUÊN MẬT KHẨU */}
       <TouchableOpacity
         style={styles.forgotButton}
-        onPress={() => {
-          Alert.alert(
-            "Quên mật khẩu",
-            "Chức năng này sẽ được kết nối với Firebase sau.",
-          );
-        }}
+        onPress={() => Alert.alert("Thông báo", "Màn hình khôi phục mật khẩu.")}
       >
         <Text style={styles.forgotText}>Quên mật khẩu?</Text>
       </TouchableOpacity>
 
-      {/* ĐĂNG NHẬP */}
       <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
         <Text style={styles.loginButtonText}>Đăng nhập</Text>
       </TouchableOpacity>
 
-      {/* ĐĂNG KÝ */}
       <View style={styles.registerContainer}>
         <Text style={styles.registerNormal}>Chưa có tài khoản?</Text>
-
-        <TouchableOpacity
-          onPress={() => {
-            Alert.alert("Đăng ký", "Màn hình đăng ký sẽ được bổ sung.");
-          }}
-        >
+        <TouchableOpacity onPress={() => Alert.alert("Thông báo", "Màn hình đăng ký.")}>
           <Text style={styles.registerText}>Đăng ký</Text>
         </TouchableOpacity>
       </View>
@@ -96,22 +79,89 @@ function LoginScreen({ email, setEmail, password, setPassword, handleLogin }) {
 }
 
 export default function App() {
-  // =====================================================
-  // STATE
-  // =====================================================
-
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState("home");
+  const [currentScreen, setCurrentScreen] = useState("home"); // "home" | "history" | "device" | "setting" | "areaDetail"
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  // TÍCH HỢP THỜI GIAN THỰC (Đồng hồ chạy từng giây)
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleString("vi-VN"));
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleString("vi-VN"));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Modal SOS & Trạng thái gửi SOS
+  const [isSosModalVisible, setIsSosModalVisible] = useState(false);
+
+  // Danh sách các khu vực
+  const [areas, setAreas] = useState([
+    {
+      id: "ESP32_001",
+      name: "Phòng khách",
+      deviceCode: "ESP32_001",
+      icon: "car-outline",
+      gas: 0,
+      temperature: 30,
+      flame: false,
+      online: true,
+      statusType: "normal",
+      statusText: "An toàn",
+      sosSent: false,
+    },
+    {
+      id: "ESP32_002",
+      name: "Nhà bếp",
+      deviceCode: "ESP32_002",
+      icon: "restaurant-outline",
+      gas: 1200,
+      temperature: 26,
+      flame: false,
+      online: true,
+      statusType: "gas",
+      statusText: "Phát hiện khí gas",
+      sosSent: false,
+    },
+    {
+      id: "ESP32_003",
+      name: "Phòng ngủ 1",
+      deviceCode: "ESP32_003",
+      icon: "bed-outline",
+      gas: 0,
+      temperature: 28,
+      flame: false,
+      online: true,
+      statusType: "normal",
+      statusText: "An toàn",
+      sosSent: false,
+    },
+    {
+      id: "ESP32_004",
+      name: "Phòng ngủ 2",
+      deviceCode: "ESP32_004",
+      icon: "bed-outline",
+      gas: 0,
+      temperature: 27,
+      flame: false,
+      online: true,
+      statusType: "normal",
+      statusText: "An toàn",
+      sosSent: false,
+    },
+  ]);
+
+  const [selectedArea, setSelectedArea] = useState(null);
+  const [historyData, setHistoryData] = useState([]);
 
   const handleLogin = async () => {
     if (email.trim() === "") {
       Alert.alert("Thông báo", "Vui lòng nhập Email!");
       return;
     }
-
     if (password.trim() === "") {
       Alert.alert("Thông báo", "Vui lòng nhập mật khẩu!");
       return;
@@ -119,855 +169,424 @@ export default function App() {
 
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
-
       setIsLoggedIn(true);
       setCurrentScreen("home");
     } catch (error) {
-      console.log("Firebase Error:", error.code);
-
       if (
         error.code === "auth/invalid-credential" ||
         error.code === "auth/wrong-password" ||
         error.code === "auth/user-not-found"
       ) {
-        Alert.alert(
-          "Đăng nhập thất bại",
-          "Bạn đã nhập sai email hoặc mật khẩu!",
-        );
+        Alert.alert("Đăng nhập thất bại", "Sai email hoặc mật khẩu!");
       } else {
-        Alert.alert("Lỗi", "Không thể đăng nhập. Vui lòng thử lại sau!");
+        Alert.alert("Lỗi", "Không thể đăng nhập. Vui lòng thử lại!");
       }
     }
   };
-  // Dữ liệu cảm biến mẫu
-  // Sau này sẽ thay bằng dữ liệu Firebase / MQTT
-  const [sensorData, setSensorData] = useState({
-    gas: 0,
-    temperature: 0,
-    flame: false,
-    esp32: true,
-  });
-  const [historyData, setHistoryData] = useState([]);
-  const [selectedHistory, setSelectedHistory] = useState(null);
-  const lastAlertRef = useRef(null);
 
-  const processSensorData = async (data) => {
-    let alertType = null;
-
-    // =========================
-    // XÁC ĐỊNH CẢNH BÁO
-    // =========================
-
-    // 1. Có lửa
-    if (data.flame === true) {
-      alertType = "fire";
-    }
-
-    // 2. Nhiệt độ cao + gas cao
-    else if (data.temperature > 55 && data.gas > 1000) {
-      alertType = "fire";
-    }
-
-    // 3. Gas cao
-    else if (data.gas >= 300) {
-      alertType = "gas";
-    }
-
-    // =========================
-    // KHÔNG CÓ CẢNH BÁO
-    // =========================
-
-    if (!alertType) {
-      lastAlertRef.current = null;
-      return;
-    }
-
-    // =========================
-    // ĐANG CÙNG MỘT CẢNH BÁO
-    // KHÔNG LƯU LẠI
-    // =========================
-
-    if (lastAlertRef.current === alertType) {
-      return;
-    }
-
-    // Ghi nhớ loại cảnh báo hiện tại
-    lastAlertRef.current = alertType;
-
-    // =========================
-    // LƯU VÀO FIRESTORE
-    // =========================
-
-    try {
-      await addDoc(collection(db, "alert_history"), {
-        type: alertType,
-        gas: data.gas,
-        temperature: data.temperature,
-        flame: data.flame,
-        esp32: data.esp32,
-        timestamp: serverTimestamp(),
-      });
-
-      console.log("Đã lưu lịch sử cảnh báo:", alertType);
-    } catch (error) {
-      console.log("Lỗi lưu lịch sử Firestore:", error);
-    }
-  };
-  // =====================================================
-  // NHẬN DỮ LIỆU REALTIME TỪ FIREBASE
-  // =====================================================
-
+  // Lắng nghe Realtime Database cho khu vực chính (Nhà bếp / ESP32_002)
   useEffect(() => {
-    // Chưa đăng nhập thì không đọc Firebase
     if (!isLoggedIn) return;
 
     const systemRef = ref(rtdb, "HeThong");
+    const unsubscribe = onValue(systemRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
 
-    const unsubscribe = onValue(
-      systemRef,
-      async (snapshot) => {
-        const data = snapshot.val();
+      const sensor = data.ThongSo_CamBien ?? {};
+      const device = data.TinhTrang_ThietBi ?? {};
 
-        if (!data) return;
+      setAreas((prevAreas) =>
+        prevAreas.map((area) => {
+          if (area.deviceCode === "ESP32_002" || area.deviceCode === "ESP32_001") {
+            const gasVal = sensor.NongDo_Gas_ADC ?? area.gas;
+            const tempVal = sensor.NhietDo_C ?? area.temperature;
+            const flameVal = sensor.PhatHienLua ?? area.flame;
+            const isOnline = device.ESP32 === "Online";
 
-        console.log("Dữ liệu nhận từ RTDB:", data);
+            let sType = "normal";
+            let sText = "An toàn";
 
-        const sensor = data.ThongSo_CamBien ?? {};
-        const device = data.TinhTrang_ThietBi ?? {};
+            if (flameVal || (tempVal > 55 && gasVal > 1000)) {
+              sType = "fire";
+              sText = "Cảnh báo cháy";
+            } else if (gasVal >= 300) {
+              sType = "gas";
+              sText = "Phát hiện khí gas";
+            }
 
-        const newSensorData = {
-          gas: sensor.NongDo_Gas_ADC ?? 0,
-          temperature: sensor.NhietDo_C ?? 0,
-          flame: sensor.PhatHienLua ?? false,
-          esp32: device.ESP32 === "Online",
-        };
-
-        // Cập nhật dữ liệu realtime cho Dashboard
-        setSensorData(newSensorData);
-
-        // Kiểm tra và lưu lịch sử nếu có cảnh báo
-        await processSensorData(newSensorData);
-      },
-      (error) => {
-        console.log("Lỗi đọc RTDB:", error);
-      },
-    );
+            return {
+              ...area,
+              gas: gasVal,
+              temperature: tempVal,
+              flame: flameVal,
+              online: isOnline,
+              statusType: sType,
+              statusText: sText,
+            };
+          }
+          return area;
+        })
+      );
+    });
 
     return () => unsubscribe();
   }, [isLoggedIn]);
 
-  // =====================================================
-  // ĐỌC LỊCH SỬ TỪ FIREBASE
-  // =====================================================
-
+  // Firestore History listener
   useEffect(() => {
     if (!isLoggedIn) return;
 
     const q = query(
       collection(db, "alert_history"),
       orderBy("timestamp", "desc"),
-      limit(50),
+      limit(50)
     );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const history = snapshot.docs.map((doc) => {
-          const data = doc.data();
-
-          return {
-            id: doc.id,
-            type: data.type,
-            title: data.type === "fire" ? "FIRE WARNING" : "GAS WARNING",
-            gas: data.gas ?? 0,
-            temperature: data.temperature ?? 0,
-            flame: data.flame ?? false,
-            esp32: data.esp32 ?? false,
-            timestamp: data.timestamp,
-          };
-        });
-
-        setHistoryData(history);
-
-        console.log("Lịch sử Firestore:", history);
-      },
-      (error) => {
-        console.log("Lỗi đọc lịch sử Firestore:", error);
-      },
-    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const history = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        let formattedTime = "N/A";
+        if (data.timestamp?.toDate) {
+          formattedTime = data.timestamp.toDate().toLocaleString("vi-VN");
+        }
+        return {
+          id: doc.id,
+          type: data.type,
+          title: data.type === "fire" ? "FIRE WARNING" : "GAS WARNING",
+          gas: data.gas ?? 0,
+          temperature: data.temperature ?? 0,
+          flame: data.flame ?? false,
+          formattedTime: formattedTime,
+        };
+      });
+      setHistoryData(history);
+    });
 
     return () => unsubscribe();
   }, [isLoggedIn]);
-  // =====================================================
-  // XÁC ĐỊNH TRẠNG THÁI CẢNH BÁO
-  // =====================================================
 
-  const getWarningStatus = () => {
-    const { gas, temperature, flame } = sensorData;
-
-    // Cháy
-    if (flame === true) {
-      return {
-        type: "fire",
-        title: "FIRE ALERT",
-        icon: "flame",
-        color: "#ffffff",
-        background: "#FF2B2B",
-      };
+  const handleConfirmSOS = () => {
+    setIsSosModalVisible(false);
+    if (selectedArea) {
+      setAreas((prev) =>
+        prev.map((item) =>
+          item.id === selectedArea.id ? { ...item, sosSent: true } : item
+        )
+      );
+      setSelectedArea((prev) => (prev ? { ...prev, sosSent: true } : null));
     }
-
-    // Cháy theo nhiệt độ + gas
-    if (temperature > 55 && gas > 1000) {
-      return {
-        type: "fire",
-        title: "FIRE ALERT",
-        icon: "flame",
-        color: "#ffffff",
-        background: "#FF2B2B",
-      };
-    }
-
-    // Cảnh báo gas
-    if (gas >= 300) {
-      return {
-        type: "gas",
-        title: "GAS ALERT",
-        icon: "warning",
-        color: "#E6A800",
-        background: "#FFE9A8",
-      };
-    }
-
-    // Bình thường
-    return {
-      type: "normal",
-      title: "AN TOÀN",
-      icon: "checkmark-circle",
-      color: "#198754",
-      background: "#C8FFC8",
-    };
+    Linking.openURL("tel:0979060405");
   };
 
-  // =====================================================
-  // HEADER
-  // =====================================================
-
-  const ScreenHeader = ({ title }) => {
+  const ScreenHeader = ({ title, showBack = false }) => {
     return (
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{title}</Text>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // DASHBOARD
-  // =====================================================
-
-  const DashboardScreen = () => {
-    const warning = getWarningStatus();
-
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Dashboard" />
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.dashboardContent}
-        >
-          {/* TRẠNG THÁI */}
+        {showBack ? (
           <TouchableOpacity
-            style={[styles.statusBox, { backgroundColor: warning.background }]}
+            style={styles.headerBackBtn}
             onPress={() => {
-              if (warning.type === "fire") {
-                setCurrentScreen("fireWarning");
-              }
-
-              if (warning.type === "gas") {
-                setCurrentScreen("gasWarning");
-              }
-            }}
-          >
-            <Ionicons name={warning.icon} size={22} color={warning.color} />
-
-            <Text style={[styles.statusText, { color: warning.color }]}>
-              {warning.title}
-            </Text>
-          </TouchableOpacity>
-
-          {/* GAS */}
-          <SensorRow
-            icon="flask"
-            iconColor="#222"
-            name="Gas"
-            value={`${sensorData.gas} ppm`}
-          />
-
-          {/* NHIỆT ĐỘ */}
-          <SensorRow
-            icon="thermometer"
-            iconColor="#E53935"
-            name="Nhiệt độ"
-            value={`${sensorData.temperature} °C`}
-          />
-
-          {/* NGỌN LỬA */}
-          <SensorRow
-            icon="flame"
-            iconColor="#E53935"
-            name="Ngọn lửa"
-            value={sensorData.flame ? "Có" : "Không"}
-            valueColor={sensorData.flame ? "#E53935" : "#333"}
-          />
-
-          {/* ESP32 */}
-          <SensorRow
-            icon="wifi"
-            iconColor="#32CD32"
-            name="Trạng thái"
-            value={sensorData.esp32 ? "ESP32 online" : "ESP32 offline"}
-            valueColor={sensorData.esp32 ? "#198754" : "#E53935"}
-          />
-          {/*NÚT NHẤN LƯU DỮ LIỆU
-           <TouchableOpacity style={styles.loginButton} onPress={saveSensorData}>
-            <Text style={styles.loginButtonText}>Lưu dữ liệu Firebase</Text>
-          </TouchableOpacity> */}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // SENSOR ROW
-  // =====================================================
-
-  const SensorRow = ({ icon, iconColor, name, value, valueColor = "#333" }) => {
-    return (
-      <View style={styles.sensorRow}>
-        <Ionicons name={icon} size={21} color={iconColor} />
-
-        <Text style={styles.sensorName}>{name}</Text>
-
-        <Text style={[styles.sensorValue, { color: valueColor }]}>{value}</Text>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // FIRE WARNING
-  // =====================================================
-
-  const FireWarningScreen = () => {
-    const data = selectedHistory || sensorData;
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Cảnh báo" />
-
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* FIRE ALERT */}
-          <View style={styles.fireAlertBox}>
-            <Ionicons name="flame" size={24} color="#FFFFFF" />
-
-            <Text style={styles.fireAlertText}>FIRE ALERT</Text>
-          </View>
-
-          <View style={styles.warningContent}>
-            <SensorRow
-              icon="flask"
-              iconColor="#222"
-              name="Gas"
-              value={`${data.gas} ppm`}
-              valueColor="#E53935"
-            />
-
-            <SensorRow
-              icon="thermometer"
-              iconColor="#E53935"
-              name="Nhiệt độ"
-              value={`${data.temperature} °C`}
-              valueColor="#E53935"
-            />
-
-            <SensorRow
-              icon="flame"
-              iconColor="#E53935"
-              name="Ngọn lửa"
-              value={data.flame ? "Có" : "Không"}
-              valueColor="#E53935"
-            />
-
-            <SensorRow
-              icon="wifi"
-              iconColor="#32CD32"
-              name="Trạng thái"
-              value={data.esp32 ? "ESP32 online" : "ESP32 offline"}
-              valueColor={data.esp32 ? "#198754" : "#E53935"}
-            />
-
-            {/* THỜI GIAN */}
-            <View style={styles.timeRow}>
-              <Ionicons name="time" size={18} color="#222" />
-
-              <Text style={styles.timeText}>
-                {data.timestamp
-                  ? `${String(data.timestamp.toDate().getDate()).padStart(2, "0")}/${String(
-                      data.timestamp.toDate().getMonth() + 1,
-                    ).padStart(
-                      2,
-                      "0",
-                    )}/${data.timestamp.toDate().getFullYear()} ${String(
-                      data.timestamp.toDate().getHours(),
-                    ).padStart(2, "0")}:${String(
-                      data.timestamp.toDate().getMinutes(),
-                    ).padStart(2, "0")}:${String(
-                      data.timestamp.toDate().getSeconds(),
-                    ).padStart(2, "0")}`
-                  : "Đang cập nhật..."}
-              </Text>
-            </View>
-          </View>
-
-          {/* QUAY LẠI */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentScreen("home")}
-          >
-            <Text style={styles.backButtonText}>Quay lại Dashboard</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // GAS WARNING
-  // =====================================================
-
-  const GasWarningScreen = () => {
-    const data = selectedHistory || sensorData;
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Cảnh báo" />
-
-        <ScrollView>
-          {/* GAS ALERT */}
-          <View style={styles.gasAlertBox}>
-            <Ionicons name="warning" size={24} color="#E6A800" />
-
-            <Text style={styles.gasAlertText}>GAS ALERT</Text>
-          </View>
-
-          <View style={styles.warningContent}>
-            <SensorRow
-              icon="flask"
-              iconColor="#222"
-              name="Gas"
-              value={`${data.gas} ppm`}
-              valueColor="#E53935"
-            />
-
-            <SensorRow
-              icon="thermometer"
-              iconColor="#E53935"
-              name="Nhiệt độ"
-              value={`${data.temperature} °C`}
-            />
-
-            <SensorRow
-              icon="flame"
-              iconColor="#E53935"
-              name="Ngọn lửa"
-              value={data.flame ? "Có" : "Không"}
-            />
-
-            <SensorRow
-              icon="wifi"
-              iconColor="#32CD32"
-              name="Trạng thái"
-              value={data.esp32 ? "ESP32 online" : "ESP32 offline"}
-              valueColor={data.esp32 ? "#198754" : "#E53935"}
-            />
-
-            <View style={styles.timeRow}>
-              <Ionicons name="time" size={18} color="#222" />
-
-              <Text style={styles.timeText}>
-                {data.timestamp
-                  ? `${String(data.timestamp.toDate().getDate()).padStart(2, "0")}/${String(
-                      data.timestamp.toDate().getMonth() + 1,
-                    ).padStart(
-                      2,
-                      "0",
-                    )}/${data.timestamp.toDate().getFullYear()} ${String(
-                      data.timestamp.toDate().getHours(),
-                    ).padStart(2, "0")}:${String(
-                      data.timestamp.toDate().getMinutes(),
-                    ).padStart(2, "0")}:${String(
-                      data.timestamp.toDate().getSeconds(),
-                    ).padStart(2, "0")}`
-                  : "Đang cập nhật..."}
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentScreen("home")}
-          >
-            <Text style={styles.backButtonText}>Quay lại Dashboard</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // HISTORY
-  // =====================================================
-
-  const HistoryScreen = () => {
-    const formatTime = (timestamp) => {
-      if (!timestamp) {
-        return "Đang cập nhật...";
-      }
-
-      const date = timestamp.toDate();
-
-      const day = String(date.getDate()).padStart(2, "0");
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const year = date.getFullYear();
-
-      const hours = String(date.getHours()).padStart(2, "0");
-      const minutes = String(date.getMinutes()).padStart(2, "0");
-      const seconds = String(date.getSeconds()).padStart(2, "0");
-
-      return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-    };
-
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Lịch sử" />
-
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {historyData.length === 0 ? (
-            <View style={{ alignItems: "center", marginTop: 50 }}>
-              <Ionicons name="time-outline" size={45} color="#BBBBBB" />
-
-              <Text
-                style={{
-                  marginTop: 10,
-                  fontSize: 14,
-                  color: "#777",
-                }}
-              >
-                Chưa có dữ liệu lịch sử
-              </Text>
-            </View>
-          ) : (
-            historyData.map((item) => {
-              let itemStyle = styles.normalHistory;
-              let textStyle = styles.normalHistoryText;
-              let icon = "checkmark-circle";
-              let iconColor = "#198754";
-
-              if (item.type === "fire") {
-                itemStyle = styles.fireHistory;
-                textStyle = styles.fireHistoryText;
-                icon = "flame";
-                iconColor = "#E53935";
-              }
-
-              if (item.type === "gas") {
-                itemStyle = styles.gasHistory;
-                textStyle = styles.gasHistoryText;
-                icon = "warning";
-                iconColor = "#F0A500";
-              }
-
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.historyItem, itemStyle]}
-                  onPress={() => {
-                    setSelectedHistory(item);
-
-                    if (item.type === "fire") {
-                      setCurrentScreen("fireWarning");
-                    } else if (item.type === "gas") {
-                      setCurrentScreen("gasWarning");
-                    }
-                  }}
-                >
-                  <View style={styles.historyHeader}>
-                    <Ionicons name={icon} size={20} color={iconColor} />
-
-                    <Text style={textStyle}>{item.title}</Text>
-                  </View>
-
-                  <Text style={styles.historyTime}>
-                    {formatTime(item.timestamp)}
-                  </Text>
-
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#666",
-                      marginTop: 5,
-                    }}
-                  >
-                    Gas: {item.gas} ppm | Nhiệt độ: {item.temperature} °C
-                  </Text>
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // DEVICE
-  // =====================================================
-
-  const DeviceScreen = () => {
-    const devices = [
-      {
-        icon: "hardware-chip",
-        name: "ESP32",
-        status: "Online",
-      },
-      {
-        icon: "flask",
-        name: "Cảm biến khí Gas MQ2",
-        status: "Hoạt động",
-      },
-      {
-        icon: "flame",
-        name: "Cảm biến lửa",
-        status: "Hoạt động",
-      },
-      {
-        icon: "thermometer",
-        name: "DHT22",
-        status: "Hoạt động",
-      },
-      {
-        icon: "volume-high",
-        name: "Buzzer",
-        status: "Hoạt động",
-      },
-      {
-        icon: "sync",
-        name: "Relay / Quạt",
-        status: "Hoạt động",
-      },
-    ];
-
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Thiết bị" />
-
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {devices.map((device, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.deviceItem}
-              onPress={() =>
-                Alert.alert(device.name, `Trạng thái: ${device.status}`)
-              }
-            >
-              <View style={styles.deviceLeft}>
-                <Ionicons name={device.icon} size={20} color="#222" />
-
-                <View style={styles.deviceTextContainer}>
-                  <Text style={styles.deviceName}>{device.name}</Text>
-
-                  <Text style={styles.deviceStatus}>{device.status}</Text>
-                </View>
-              </View>
-
-              {/* STATUS DOT */}
-              <View style={styles.onlineDot} />
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  // =====================================================
-  // SETTING
-  // =====================================================
-
-  const SettingScreen = () => {
-    const showComingSoon = (title) => {
-      Alert.alert(
-        title,
-        "Chức năng này sẽ được hoàn thiện ở bước tích hợp Firebase.",
-      );
-    };
-
-    return (
-      <View style={styles.screenContainer}>
-        <ScreenHeader title="Tài khoản" />
-
-        <ScrollView>
-          {/* USER */}
-          <View style={styles.userContainer}>
-            <View style={styles.avatar}>
-              <Ionicons name="person" size={27} color="#FFFFFF" />
-            </View>
-
-            <View>
-              <Text style={styles.userName}>User's name</Text>
-
-              <Text style={styles.userEmail}>{email || "user@gmail.com"}</Text>
-            </View>
-          </View>
-
-          {/* THÔNG BÁO */}
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={() => showComingSoon("Thông báo")}
-          >
-            <Ionicons name="notifications-outline" size={22} color="#333" />
-
-            <Text style={styles.settingText}>Thông báo</Text>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#999"
-              style={styles.rightArrow}
-            />
-          </TouchableOpacity>
-
-          {/* ĐỔI MẬT KHẨU */}
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={() => showComingSoon("Đổi mật khẩu")}
-          >
-            <Ionicons name="lock-closed-outline" size={22} color="#333" />
-
-            <Text style={styles.settingText}>Đổi mật khẩu</Text>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#999"
-              style={styles.rightArrow}
-            />
-          </TouchableOpacity>
-
-          {/* THÔNG TIN */}
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={() =>
-              Alert.alert(
-                "Fire Alert",
-                "Ứng dụng giám sát và cảnh báo cháy.\n\nVersion 1.0.0",
-              )
-            }
-          >
-            <Ionicons
-              name="information-circle-outline"
-              size={22}
-              color="#333"
-            />
-
-            <Text style={styles.settingText}>Thông tin ứng dụng</Text>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#999"
-              style={styles.rightArrow}
-            />
-          </TouchableOpacity>
-
-          {/* ĐĂNG XUẤT */}
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={() => {
-              setIsLoggedIn(false);
+              setSelectedArea(null);
               setCurrentScreen("home");
             }}
           >
-            <Ionicons name="log-out-outline" size={22} color="#E00000" />
-
-            <Text style={styles.logoutText}>Đăng xuất</Text>
+            <Ionicons name="chevron-back" size={24} color="#111" />
+            <Text style={styles.headerTitle}>{title}</Text>
           </TouchableOpacity>
+        ) : (
+          <Text style={styles.headerTitle}>{title}</Text>
+        )}
+      </View>
+    );
+  };
+
+  // =====================================================
+  // 1. MÀN HÌNH DANH SÁCH KHU VỰC (NHÀ)
+  // =====================================================
+  const AreaListScreen = () => {
+    return (
+      <View style={styles.screenContainer}>
+        <ScreenHeader title="Nhà" />
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {areas.map((area) => {
+            let cardBg = "#DDF7E3";
+            let iconColor = "#2E7D32";
+
+            if (area.statusType === "gas") {
+              cardBg = "#FFE8A3";
+              iconColor = "#D97706";
+            } else if (area.statusType === "fire") {
+              cardBg = "#FFD8D8";
+              iconColor = "#DC2626";
+            }
+
+            return (
+              <TouchableOpacity
+                key={area.id}
+                style={[styles.areaCard, { backgroundColor: cardBg }]}
+                onPress={() => {
+                  setSelectedArea(area);
+                  setCurrentScreen("areaDetail");
+                }}
+              >
+                <View style={styles.areaCardIcon}>
+                  <Ionicons name={area.icon} size={28} color={iconColor} />
+                </View>
+
+                <View style={styles.areaCardInfo}>
+                  <Text style={styles.areaCardTitle}>
+                    {area.name} ({area.deviceCode})
+                  </Text>
+                  <Text style={styles.areaCardSubText}>{area.statusText}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
     );
   };
 
   // =====================================================
-  // BOTTOM NAVIGATION
+  // 2. MÀN HÌNH CHI TIẾT KHU VỰC
   // =====================================================
+  const AreaDetailScreen = () => {
+    if (!selectedArea) return null;
 
-  const BottomNavigation = () => {
+    const currentArea = areas.find((a) => a.id === selectedArea.id) || selectedArea;
+
     return (
-      <View style={styles.bottomMenu}>
-        {/* HOME */}
-        <TouchableOpacity
-          style={styles.bottomButton}
-          onPress={() => setCurrentScreen("home")}
-        >
-          <Ionicons
-            name={currentScreen === "home" ? "home" : "home-outline"}
-            size={23}
-            color={currentScreen === "home" ? "#2196F3" : "#222"}
-          />
-        </TouchableOpacity>
+      <View style={styles.screenContainer}>
+        <ScreenHeader title={currentArea.name} showBack={true} />
 
-        {/* HISTORY */}
-        <TouchableOpacity
-          style={styles.bottomButton}
-          onPress={() => setCurrentScreen("history")}
-        >
-          <Ionicons
-            name={currentScreen === "history" ? "time" : "time-outline"}
-            size={23}
-            color={currentScreen === "history" ? "#2196F3" : "#222"}
-          />
-        </TouchableOpacity>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* BANNER TÍN HIỆU SOS ĐÃ GỬI */}
+          {currentArea.sosSent && (
+            <View style={styles.sosSentBanner}>
+              <Ionicons name="notifications" size={20} color="#DC2626" />
+              <Text style={styles.sosSentText}>Đã gửi tín hiệu SOS</Text>
+            </View>
+          )}
 
-        {/* DEVICE */}
-        <TouchableOpacity
-          style={styles.bottomButton}
-          onPress={() => setCurrentScreen("device")}
-        >
-          <Ionicons
-            name={
-              currentScreen === "device"
-                ? "hardware-chip"
-                : "hardware-chip-outline"
-            }
-            size={23}
-            color={currentScreen === "device" ? "#2196F3" : "#222"}
-          />
-        </TouchableOpacity>
+          {/* BANNER TRẠNG THÁI */}
+          {!currentArea.sosSent && currentArea.statusType === "normal" && (
+            <View style={[styles.statusBanner, { backgroundColor: "#DDF7E3" }]}>
+              <Ionicons name="checkmark-circle" size={22} color="#16A34A" />
+              <Text style={[styles.statusBannerText, { color: "#16A34A" }]}>
+                AN TOÀN
+              </Text>
+            </View>
+          )}
 
-        {/* SETTING */}
-        <TouchableOpacity
-          style={styles.bottomButton}
-          onPress={() => setCurrentScreen("setting")}
+          {!currentArea.sosSent && currentArea.statusType === "gas" && (
+            <View style={[styles.statusBanner, { backgroundColor: "#FFE8A3" }]}>
+              <Ionicons name="warning" size={22} color="#D97706" />
+              <Text style={[styles.statusBannerText, { color: "#D97706" }]}>
+                GAS ALERT
+              </Text>
+            </View>
+          )}
+
+          {!currentArea.sosSent && currentArea.statusType === "fire" && (
+            <View style={[styles.statusBanner, { backgroundColor: "#FF2B2B" }]}>
+              <Ionicons name="flame" size={22} color="#FFFFFF" />
+              <Text style={[styles.statusBannerText, { color: "#FFFFFF" }]}>
+                FIRE ALERT
+              </Text>
+            </View>
+          )}
+
+          {/* CÁC DÒNG THÔNG SỐ CẢM BIẾN */}
+          <View style={styles.sensorBox}>
+            <View style={styles.sensorRow}>
+              <Ionicons name="flask" size={20} color="#222" />
+              <Text style={styles.sensorName}>Gas</Text>
+              <Text
+                style={[
+                  styles.sensorValue,
+                  currentArea.gas >= 300 && { color: "#DC2626" },
+                ]}
+              >
+                {currentArea.gas}ppm
+              </Text>
+            </View>
+
+            <View style={styles.sensorRow}>
+              <Ionicons name="thermometer" size={20} color="#DC2626" />
+              <Text style={styles.sensorName}>Nhiệt độ</Text>
+              <Text style={[styles.sensorValue, { color: "#DC2626" }]}>
+                {currentArea.temperature} °C
+              </Text>
+            </View>
+
+            <View style={styles.sensorRow}>
+              <Ionicons name="flame" size={20} color="#DC2626" />
+              <Text style={styles.sensorName}>Ngọn lửa</Text>
+              <Text style={styles.sensorValue}>
+                {currentArea.flame ? "Có" : "Không"}
+              </Text>
+            </View>
+
+            <View style={styles.sensorRow}>
+              <Ionicons name="wifi" size={20} color="#16A34A" />
+              <Text style={styles.sensorName}>Trạng thái</Text>
+              <Text style={[styles.sensorValue, { color: "#16A34A" }]}>
+                {currentArea.deviceCode} {currentArea.online ? "online" : "offline"}
+              </Text>
+            </View>
+
+            {/* THỜI GIAN THỰC ĐƯỢC HIỂN THỊ TẠI ĐÂY */}
+            <View style={styles.sensorRow}>
+              <Ionicons name="time" size={20} color="#222" />
+              <Text style={styles.sensorName}>Thời gian</Text>
+              <Text style={styles.sensorValue}>{currentTime}</Text>
+            </View>
+          </View>
+
+          {/* NÚT BÁO CHÁY Red Button */}
+          <TouchableOpacity
+            style={styles.fireBtn}
+            onPress={() => setIsSosModalVisible(true)}
+          >
+            <Text style={styles.fireBtnText}>Báo cháy</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* MODAL XÁC NHẬN BÁO CHÁY SOS */}
+        <Modal
+          visible={isSosModalVisible}
+          transparent={true}
+          animationType="fade"
         >
-          <Ionicons
-            name={currentScreen === "setting" ? "settings" : "settings-outline"}
-            size={23}
-            color={currentScreen === "setting" ? "#2196F3" : "#222"}
-          />
-        </TouchableOpacity>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.sosBadge}>
+                <Text style={styles.sosBadgeText}>SOS</Text>
+              </View>
+
+              <Text style={styles.modalTitle}>Xác nhận báo cháy</Text>
+              <Text style={styles.modalMessage}>
+                Bạn có chắc chắn muốn gửi yêu cầu SOS?{"\n"}Hệ thống sẽ gửi cảnh báo đến người liên hệ cứu hộ/ người phụ trách.
+              </Text>
+
+              <View style={styles.modalBtnRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelBtn}
+                  onPress={() => setIsSosModalVisible(false)}
+                >
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalConfirmBtn}
+                  onPress={handleConfirmSOS}
+                >
+                  <Text style={styles.modalConfirmText}>Xác nhận</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   };
 
   // =====================================================
-  // LOGIN
+  // 3. CÁC MÀN HÌNH KHÁC
   // =====================================================
+  const HistoryScreen = () => (
+    <View style={styles.screenContainer}>
+      <ScreenHeader title="Lịch sử" />
+      <ScrollView>
+        {historyData.map((item) => (
+          <View key={item.id} style={styles.historyCard}>
+            <Text style={{ fontWeight: "bold" }}>{item.title}</Text>
+            <Text>Gas: {item.gas} ppm | Nhiệt độ: {item.temperature} °C</Text>
+            <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+              Thời gian: {item.formattedTime}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
+  const DeviceScreen = () => (
+    <View style={styles.screenContainer}>
+      <ScreenHeader title="Thiết bị" />
+      <ScrollView>
+        {areas.map((area) => (
+          <View key={area.id} style={styles.deviceRow}>
+            <Text style={{ fontSize: 16 }}>{area.name} ({area.deviceCode})</Text>
+            <Text style={{ color: "#16A34A" }}>{area.online ? "Online" : "Offline"}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
+  const SettingScreen = () => (
+    <View style={styles.screenContainer}>
+      <ScreenHeader title="Tài khoản" />
+      <ScrollView>
+        <TouchableOpacity style={styles.logoutButton} onPress={() => setIsLoggedIn(false)}>
+          <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+          <Text style={styles.logoutText}>Đăng xuất</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+
+  const BottomNavigation = () => (
+    <View style={styles.bottomMenu}>
+      <TouchableOpacity
+        style={styles.bottomButton}
+        onPress={() => {
+          setSelectedArea(null);
+          setCurrentScreen("home");
+        }}
+      >
+        <Ionicons
+          name={currentScreen === "home" || currentScreen === "areaDetail" ? "home" : "home-outline"}
+          size={24}
+          color={currentScreen === "home" || currentScreen === "areaDetail" ? "#2196F3" : "#222"}
+        />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.bottomButton}
+        onPress={() => setCurrentScreen("history")}
+      >
+        <Ionicons
+          name={currentScreen === "history" ? "time" : "time-outline"}
+          size={24}
+          color={currentScreen === "history" ? "#2196F3" : "#222"}
+        />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.bottomButton}
+        onPress={() => setCurrentScreen("device")}
+      >
+        <Ionicons
+          name={currentScreen === "device" ? "hardware-chip" : "hardware-chip-outline"}
+          size={24}
+          color={currentScreen === "device" ? "#2196F3" : "#222"}
+        />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.bottomButton}
+        onPress={() => setCurrentScreen("setting")}
+      >
+        <Ionicons
+          name={currentScreen === "setting" ? "settings" : "settings-outline"}
+          size={24}
+          color={currentScreen === "setting" ? "#2196F3" : "#222"}
+        />
+      </TouchableOpacity>
+    </View>
+  );
 
   if (!isLoggedIn) {
     return (
@@ -981,41 +600,23 @@ export default function App() {
     );
   }
 
-  // =====================================================
-  // APP
-  // =====================================================
-
   return (
     <View style={styles.mainContainer}>
-      {currentScreen === "home" && <DashboardScreen />}
-
-      {currentScreen === "fireWarning" && <FireWarningScreen />}
-
-      {currentScreen === "gasWarning" && <GasWarningScreen />}
-
+      {currentScreen === "home" && <AreaListScreen />}
+      {currentScreen === "areaDetail" && <AreaDetailScreen />}
       {currentScreen === "history" && <HistoryScreen />}
-
       {currentScreen === "device" && <DeviceScreen />}
-
       {currentScreen === "setting" && <SettingScreen />}
 
-      {/* Không hiện bottom menu khi đang xem chi tiết cảnh báo */}
-      {currentScreen !== "fireWarning" && currentScreen !== "gasWarning" && (
-        <BottomNavigation />
-      )}
+      <BottomNavigation />
     </View>
   );
 }
 
 // =====================================================
-// STYLE
+// STYLESHEET
 // =====================================================
-
 const styles = StyleSheet.create({
-  // ===================================================
-  // LOGIN
-  // ===================================================
-
   loginContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -1023,20 +624,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 38,
     paddingTop: 70,
   },
-
-  loginLogo: {
-    width: 160,
-    height: 160,
-    marginBottom: 4,
-  },
-
-  loginTitle: {
-    fontSize: 35,
-    fontWeight: "bold",
-    color: "#D71920",
-    marginBottom: 38,
-  },
-
+  loginLogo: { width: 160, height: 160, marginBottom: 4 },
+  loginTitle: { fontSize: 35, fontWeight: "bold", color: "#D71920", marginBottom: 38 },
   loginInput: {
     width: "100%",
     height: 55,
@@ -1047,18 +636,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 15,
   },
-
-  forgotButton: {
-    width: "100%",
-    alignItems: "flex-end",
-    marginBottom: 18,
-  },
-
-  forgotText: {
-    fontSize: 11,
-    color: "#333",
-  },
-
+  forgotButton: { width: "100%", alignItems: "flex-end", marginBottom: 18 },
+  forgotText: { fontSize: 11, color: "#333" },
   loginButton: {
     width: "100%",
     height: 47,
@@ -1067,365 +646,151 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  loginButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  registerContainer: { flexDirection: "row", marginTop: 48 },
+  registerNormal: { fontSize: 11, color: "#555", marginRight: 5 },
+  registerText: { fontSize: 11, color: "#D71920", fontWeight: "500" },
 
-  loginButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  registerContainer: {
-    flexDirection: "row",
-    marginTop: 48,
-  },
-
-  registerNormal: {
-    fontSize: 11,
-    color: "#555",
-    marginRight: 5,
-  },
-
-  registerText: {
-    fontSize: 11,
-    color: "#D71920",
-    fontWeight: "500",
-  },
-
-  // ===================================================
-  // MAIN
-  // ===================================================
-
-  mainContainer: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-
+  mainContainer: { flex: 1, backgroundColor: "#FFFFFF" },
   screenContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 25,
+    paddingHorizontal: 20,
     paddingTop: 48,
     paddingBottom: 70,
   },
+  header: { marginBottom: 20 },
+  headerBackBtn: { flexDirection: "row", alignItems: "center" },
+  headerTitle: { fontSize: 24, fontWeight: "bold", color: "#111111" },
 
-  header: {
-    marginBottom: 18,
-  },
-
-  headerTitle: {
-    fontSize: 21,
-    fontWeight: "bold",
-    color: "#111111",
-  },
-
-  // ===================================================
-  // DASHBOARD
-  // ===================================================
-
-  dashboardContent: {
-    paddingBottom: 30,
-  },
-
-  statusBox: {
+  // CARD DANH SÁCH KHU VỰC
+  areaCard: {
     width: "100%",
-    height: 80,
-    borderRadius: 20,
+    height: 65,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  areaCardIcon: { marginRight: 14 },
+  areaCardInfo: { flex: 1 },
+  areaCardTitle: { fontSize: 15, fontWeight: "bold", color: "#111" },
+  areaCardSubText: { fontSize: 13, color: "#444", marginTop: 2 },
+
+  // BANNER CHI TIẾT
+  statusBanner: {
+    width: "100%",
+    height: 55,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 25,
   },
+  statusBannerText: { fontSize: 18, fontWeight: "bold", marginLeft: 8 },
 
-  statusText: {
-    fontSize: 25,
-    fontWeight: "bold",
-    marginLeft: 9,
+  sosSentBanner: {
+    width: "100%",
+    height: 48,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
   },
+  sosSentText: { fontSize: 15, fontWeight: "bold", color: "#DC2626", marginLeft: 8 },
 
+  // CẢM BIẾN
+  sensorBox: { marginBottom: 30 },
   sensorRow: {
-    width: "100%",
-    minHeight: 55,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 5,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
   },
+  sensorName: { fontSize: 15, color: "#111", marginLeft: 12, flex: 1 },
+  sensorValue: { fontSize: 15, color: "#111", fontWeight: "500" },
 
-  sensorName: {
-    fontSize: 15,
-    color: "#333",
-    marginLeft: 10,
-    flex: 1,
-  },
-
-  sensorValue: {
-    fontSize: 15,
-    color: "#333",
-    textAlign: "right",
-  },
-
-  // ===================================================
-  // WARNING
-  // ===================================================
-
-  fireAlertBox: {
+  // NÚT BÁO CHÁY
+  fireBtn: {
     width: "100%",
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: "#FF2525",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-
-  fireAlertText: {
-    color: "#f1f0f0",
-    fontSize: 25,
-    fontWeight: "bold",
-    marginLeft: 9,
-  },
-
-  gasAlertBox: {
-    width: "100%",
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: "#FFE8A3",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-
-  gasAlertText: {
-    color: "#E0A000",
-    fontSize: 25,
-    fontWeight: "bold",
-    marginLeft: 9,
-  },
-
-  warningContent: {
-    width: "100%",
-  },
-
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    marginBottom: 15,
-  },
-
-  timeText: {
-    fontSize: 11,
-    marginLeft: 10,
-    color: "#333",
-  },
-
-  backButton: {
-    width: "100%",
-    height: 43,
-    backgroundColor: "#EEEEEE",
-    borderRadius: 6,
+    height: 52,
+    backgroundColor: "#D71920",
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 10,
   },
+  fireBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "bold" },
 
-  backButtonText: {
-    fontSize: 12,
-    color: "#333",
-    fontWeight: "500",
-  },
-
-  // ===================================================
-  // HISTORY
-  // ===================================================
-
-  historyItem: {
-    width: "100%",
-    borderRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 12,
-    marginBottom: 7,
-  },
-
-  fireHistory: {
-    backgroundColor: "#FFD6D6",
-  },
-
-  gasHistory: {
-    backgroundColor: "#FFF0B8",
-  },
-
-  normalHistory: {
-    backgroundColor: "#CFFFCE",
-  },
-
-  historyHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  fireHistoryText: {
-    color: "#E53935",
-    fontSize: 15,
-    fontWeight: "600",
-    marginLeft: 7,
-  },
-
-  gasHistoryText: {
-    color: "#E0A000",
-    fontSize: 15,
-    fontWeight: "600",
-    marginLeft: 7,
-  },
-
-  normalHistoryText: {
-    color: "#198754",
-    fontSize: 15,
-    fontWeight: "600",
-    marginLeft: 7,
-  },
-
-  historyTime: {
-    fontSize: 13,
-    color: "#555",
-    marginTop: 5,
-  },
-
-  // ===================================================
-  // DEVICE
-  // ===================================================
-
-  deviceItem: {
-    width: "100%",
-    minHeight: 65,
-    backgroundColor: "#F3F3F3",
-    borderRadius: 7,
-    paddingVertical: 9,
-    paddingHorizontal: 15,
-    marginBottom: 7,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  deviceLeft: {
-    flexDirection: "row",
-    alignItems: "center",
+  // MODAL SOS
+  modalOverlay: {
     flex: 1,
-  },
-
-  deviceTextContainer: {
-    marginLeft: 12,
-  },
-
-  deviceName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#222",
-  },
-
-  deviceStatus: {
-    fontSize: 13,
-    color: "#555",
-    marginTop: 3,
-  },
-
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#19B84A",
-  },
-
-  // ===================================================
-  // SETTING
-  // ===================================================
-
-  userContainer: {
-    flexDirection: "row",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 27,
+    paddingHorizontal: 30,
   },
-
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 23,
-    backgroundColor: "#000000",
+  modalCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  sosBadge: {
+    width: 50,
+    height: 28,
+    backgroundColor: "#DC2626",
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginBottom: 12,
   },
-
-  userName: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  userEmail: {
-    fontSize: 13,
-    color: "#777",
-    marginTop: 3,
-  },
-
-  settingItem: {
-    width: "100%",
-    height: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEEEEE",
-    flexDirection: "row",
+  sosBadgeText: { color: "#FFF", fontWeight: "bold", fontSize: 13 },
+  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#111", marginBottom: 10 },
+  modalMessage: { fontSize: 13, color: "#666", textAlign: "center", lineHeight: 18, marginBottom: 22 },
+  modalBtnRow: { flexDirection: "row", width: "100%", justifyContent: "space-between" },
+  modalCancelBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
     alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
   },
-
-  settingText: {
-    fontSize: 15,
-    color: "#333",
-    marginLeft: 14,
-  },
-
-  rightArrow: {
-    marginLeft: "auto",
-  },
-
-  logoutButton: {
-    flexDirection: "row",
+  modalCancelText: { color: "#374151", fontWeight: "600", fontSize: 14 },
+  modalConfirmBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#DC2626",
     alignItems: "center",
-    marginTop: 30,
+    justifyContent: "center",
   },
+  modalConfirmText: { color: "#FFF", fontWeight: "600", fontSize: 14 },
 
-  logoutText: {
-    color: "#E00000",
-    fontSize: 15,
-    marginLeft: 10,
-  },
-
-  // ===================================================
-  // BOTTOM NAVIGATION
-  // ===================================================
+  // MÀN HÌNH KHÁC
+  historyCard: { padding: 14, borderWidth: 1, borderColor: "#EEE", borderRadius: 10, marginBottom: 10 },
+  deviceRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: "#EEE" },
+  logoutButton: { flexDirection: "row", alignItems: "center", marginTop: 20 },
+  logoutText: { fontSize: 15, color: "#DC2626", fontWeight: "bold", marginLeft: 12 },
 
   bottomMenu: {
     position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-
-    height: 62,
-
+    height: 60,
     backgroundColor: "#FFFFFF",
-
+    flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: "#EEEEEE",
-
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
   },
-
-  bottomButton: {
-    width: 55,
-    height: 55,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  bottomButton: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
