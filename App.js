@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db, rtdb } from "./firebaseConfig";
 import {
@@ -14,6 +14,7 @@ import {
   Modal,
   Linking,
   Switch,
+  Platform,
 } from "react-native";
 import {
   collection,
@@ -24,6 +25,10 @@ import {
 } from "firebase/firestore";
 import { ref, onValue } from "firebase/database";
 import { Ionicons } from "@expo/vector-icons";
+
+// Link âm thanh cảnh báo MP3
+const ALARM_SOUND_URL =
+  "https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg";
 
 // =====================================================
 // MÀN HÌNH ĐĂNG NHẬP
@@ -93,6 +98,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Số điện thoại người thân
+  const [emergencyPhone, setEmergencyPhone] = useState("0979060405");
+  const [tempPhoneInput, setTempPhoneInput] = useState("0979060405");
+
   // Đồng hồ thời gian thực
   const [currentTime, setCurrentTime] = useState(
     new Date().toLocaleString("vi-VN")
@@ -105,14 +114,43 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Trạng thái Modal SOS & Modal Logout
+  // Trạng thái Modals
   const [isSosModalVisible, setIsSosModalVisible] = useState(false);
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
+  const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
 
-  // Cài đặt ứng dụng (Trạng thái Switch)
+  // Cài đặt ứng dụng
   const [pushNotification, setPushNotification] = useState(true);
   const [soundAlert, setSoundAlert] = useState(true);
   const [gasNotification, setGasNotification] = useState(true);
+
+  // Quản lý âm thanh an toàn (Tránh văng app Expo Go)
+  const audioRef = useRef(null);
+
+  const playAlarmSound = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      try {
+        if (!audioRef.current) {
+          audioRef.current = new window.Audio(ALARM_SOUND_URL);
+          audioRef.current.loop = true;
+        }
+        audioRef.current.play().catch(() => {});
+      } catch (e) {
+        console.log("Audio Web error:", e);
+      }
+    }
+  };
+
+  const stopAlarmSound = () => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (e) {
+        console.log("Audio Stop error:", e);
+      }
+    }
+  };
 
   // Danh sách khu vực
   const [areas, setAreas] = useState([
@@ -209,7 +247,7 @@ export default function App() {
     }
   };
 
-  // Realtime Database listener
+  // Realtime Database Listener
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -220,6 +258,8 @@ export default function App() {
 
       const sensor = data.ThongSo_CamBien ?? {};
       const device = data.TinhTrang_ThietBi ?? {};
+
+      let hasEmergency = false;
 
       setAreas((prevAreas) =>
         prevAreas.map((area) => {
@@ -238,9 +278,11 @@ export default function App() {
             if (flameVal || (tempVal > 55 && gasVal > 1000)) {
               sType = "fire";
               sText = "Cảnh báo cháy";
+              hasEmergency = true;
             } else if (gasVal >= 300) {
               sType = "gas";
               sText = "Phát hiện khí gas";
+              hasEmergency = true;
             }
 
             return {
@@ -256,12 +298,18 @@ export default function App() {
           return area;
         })
       );
+
+      if (hasEmergency && soundAlert) {
+        playAlarmSound();
+      } else {
+        stopAlarmSound();
+      }
     });
 
     return () => unsubscribe();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, soundAlert]);
 
-  // Firestore History listener
+  // Firestore Listener
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -294,7 +342,6 @@ export default function App() {
     return () => unsubscribe();
   }, [isLoggedIn]);
 
-  // Xử lý xác nhận SOS
   const handleConfirmSOS = () => {
     setIsSosModalVisible(false);
     if (selectedArea) {
@@ -305,10 +352,21 @@ export default function App() {
       );
       setSelectedArea((prev) => (prev ? { ...prev, sosSent: true } : null));
     }
-    Linking.openURL("tel:0979060405");
+    Linking.openURL(`tel:${emergencyPhone}`);
+  };
+
+  const handleSavePhone = () => {
+    if (tempPhoneInput.trim() === "") {
+      Alert.alert("Lỗi", "Vui lòng nhập số điện thoại hợp lệ!");
+      return;
+    }
+    setEmergencyPhone(tempPhoneInput.trim());
+    setIsPhoneModalVisible(false);
+    Alert.alert("Thành công", "Đã cập nhật số điện thoại khẩn cấp!");
   };
 
   const handleLogout = () => {
+    stopAlarmSound();
     setIsLogoutModalVisible(false);
     setIsLoggedIn(false);
     setEmail("");
@@ -335,7 +393,6 @@ export default function App() {
     </View>
   );
 
-  // Màn hình danh sách khu vực
   const renderAreaListScreen = () => (
     <View style={styles.screenContainer}>
       <ScreenHeader title="Trang chủ" />
@@ -378,7 +435,6 @@ export default function App() {
     </View>
   );
 
-  // Màn hình chi tiết khu vực
   const renderAreaDetailScreen = () => {
     if (!selectedArea) return null;
     const currentArea =
@@ -511,9 +567,6 @@ export default function App() {
     </View>
   );
 
-  // =====================================================
-  // MÀN HÌNH THIẾT BỊ (ĐÃ NÂNG CẤP CHI TIẾT)
-  // =====================================================
   const renderDeviceScreen = () => {
     const onlineCount = areas.filter((a) => a.online).length;
     const offlineCount = areas.length - onlineCount;
@@ -533,7 +586,6 @@ export default function App() {
         />
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Thống kê tổng quan */}
           <View style={styles.overviewCard}>
             <View style={styles.overviewItem}>
               <Text style={styles.overviewNum}>{areas.length}</Text>
@@ -640,14 +692,10 @@ export default function App() {
     );
   };
 
-  // =====================================================
-  // MÀN HÌNH TÀI KHOẢN (ĐÃ NÂNG CẤP CHI TIẾT)
-  // =====================================================
   const renderSettingScreen = () => (
     <View style={styles.screenContainer}>
       <ScreenHeader title="Cài đặt tài khoản" />
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Thẻ User Profile */}
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
             <Ionicons name="person-circle" size={64} color="#2196F3" />
@@ -663,7 +711,6 @@ export default function App() {
           </View>
         </View>
 
-        {/* Nhóm Cài đặt thông báo */}
         <Text style={styles.sectionTitle}>Cài đặt thông báo & Cảnh báo</Text>
         <View style={styles.settingsGroup}>
           <View style={styles.settingRow}>
@@ -686,7 +733,10 @@ export default function App() {
             </View>
             <Switch
               value={soundAlert}
-              onValueChange={setSoundAlert}
+              onValueChange={(val) => {
+                setSoundAlert(val);
+                if (!val) stopAlarmSound();
+              }}
               trackColor={{ false: "#D1D5DB", true: "#93C5FD" }}
               thumbColor={soundAlert ? "#2196F3" : "#F3F4F6"}
             />
@@ -706,12 +756,11 @@ export default function App() {
           </View>
         </View>
 
-        {/* Nhóm Liên hệ khẩn cấp */}
         <Text style={styles.sectionTitle}>Cấu hình liên hệ khẩn cấp</Text>
         <View style={styles.settingsGroup}>
           <TouchableOpacity
             style={styles.settingRowClickable}
-            onPress={() => Alert.alert("Cứu hộ 114", "Số cứu hộ mặc định: 114")}
+            onPress={() => Linking.openURL("tel:114")}
           >
             <View style={styles.settingRowLeft}>
               <Ionicons name="call-outline" size={20} color="#DC2626" />
@@ -722,22 +771,22 @@ export default function App() {
 
           <TouchableOpacity
             style={styles.settingRowClickable}
-            onPress={() =>
-              Alert.alert("Chỉnh sửa", "Thay đổi số điện thoại người thân khẩn cấp")
-            }
+            onPress={() => {
+              setTempPhoneInput(emergencyPhone);
+              setIsPhoneModalVisible(true);
+            }}
           >
             <View style={styles.settingRowLeft}>
               <Ionicons name="people-outline" size={20} color="#2196F3" />
               <Text style={styles.settingRowText}>SĐT Người thân khẩn cấp</Text>
             </View>
             <View style={styles.rowRightWithChevron}>
-              <Text style={styles.settingValText}>0979060405</Text>
+              <Text style={styles.settingValText}>{emergencyPhone}</Text>
               <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
             </View>
           </TouchableOpacity>
         </View>
 
-        {/* Nhóm Bảo mật & Hệ thống */}
         <Text style={styles.sectionTitle}>Bảo mật & Trợ giúp</Text>
         <View style={styles.settingsGroup}>
           <TouchableOpacity
@@ -771,7 +820,6 @@ export default function App() {
           </View>
         </View>
 
-        {/* Nút Đăng xuất */}
         <TouchableOpacity
           style={styles.logoutFullButton}
           onPress={() => setIsLogoutModalVisible(true)}
@@ -862,13 +910,16 @@ export default function App() {
 
   return (
     <View style={styles.mainContainer}>
+      <StatusBar barStyle="dark-content" />
       {currentScreen === "home" && renderAreaListScreen()}
       {currentScreen === "areaDetail" && renderAreaDetailScreen()}
       {currentScreen === "history" && renderHistoryScreen()}
       {currentScreen === "device" && renderDeviceScreen()}
       {currentScreen === "setting" && renderSettingScreen()}
 
-      {/* Modal báo cháy cố định cấp cao nhất */}
+      <BottomNavigation />
+
+      {/* Modal Báo Cháy SOS */}
       <Modal
         visible={isSosModalVisible}
         transparent={true}
@@ -883,8 +934,7 @@ export default function App() {
 
             <Text style={styles.modalTitle}>Xác nhận báo cháy</Text>
             <Text style={styles.modalMessage}>
-              Bạn có chắc chắn muốn gửi yêu cầu SOS?{"\n"}Hệ thống sẽ gửi cảnh
-              báo đến người liên hệ cứu hộ/ người phụ trách.
+              Hệ thống sẽ thực hiện cuộc gọi khẩn cấp đến SĐT người thân ({emergencyPhone}).
             </Text>
 
             <View style={styles.modalBtnRow}>
@@ -899,14 +949,51 @@ export default function App() {
                 style={styles.modalConfirmBtn}
                 onPress={handleConfirmSOS}
               >
-                <Text style={styles.modalConfirmText}>Xác nhận</Text>
+                <Text style={styles.modalConfirmText}>Gọi ngay</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Modal xác nhận Đăng xuất */}
+      {/* Modal SĐT Khẩn cấp */}
+      <Modal
+        visible={isPhoneModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsPhoneModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>SĐT Khẩn Cấp</Text>
+            <Text style={styles.modalMessage}>
+              Nhập số điện thoại sẽ tự động gọi khi kích hoạt SOS.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={tempPhoneInput}
+              onChangeText={setTempPhoneInput}
+              keyboardType="phone-pad"
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setIsPhoneModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleSavePhone}
+              >
+                <Text style={styles.modalConfirmText}>Lưu</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Đăng xuất */}
       <Modal
         visible={isLogoutModalVisible}
         transparent={true}
@@ -915,14 +1002,10 @@ export default function App() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Ionicons name="log-out-outline" size={40} color="#DC2626" />
-            <Text style={[styles.modalTitle, { marginTop: 10 }]}>
-              Đăng xuất
-            </Text>
+            <Text style={styles.modalTitle}>Đăng xuất</Text>
             <Text style={styles.modalMessage}>
-              Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này không?
+              Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng không?
             </Text>
-
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
@@ -930,9 +1013,8 @@ export default function App() {
               >
                 <Text style={styles.modalCancelText}>Hủy</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
-                style={styles.modalConfirmBtn}
+                style={[styles.modalConfirmBtn, { backgroundColor: "#DC2626" }]}
                 onPress={handleLogout}
               >
                 <Text style={styles.modalConfirmText}>Đăng xuất</Text>
@@ -941,8 +1023,6 @@ export default function App() {
           </View>
         </View>
       </Modal>
-
-      <BottomNavigation />
     </View>
   );
 }
@@ -951,169 +1031,261 @@ export default function App() {
 // STYLESHEET
 // =====================================================
 const styles = StyleSheet.create({
-  loginContainer: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    paddingHorizontal: 38,
-    paddingTop: 70,
-  },
-  logoWrapper: {
-    width: 160,
-    height: 160,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  loginLogo: { width: "100%", height: "100%" },
-  loginTitle: {
-    fontSize: 35,
-    fontWeight: "bold",
-    color: "#D71920",
-    marginBottom: 38,
-  },
-  loginInput: {
-    width: "100%",
-    height: 55,
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-    borderRadius: 6,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    marginBottom: 15,
-    backgroundColor: "#FAFAFA",
-  },
-  forgotButton: { width: "100%", alignItems: "flex-end", marginBottom: 18 },
-  forgotText: { fontSize: 12, color: "#333" },
-  loginButton: {
-    width: "100%",
-    height: 47,
-    backgroundColor: "#E00000",
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loginButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
-  registerContainer: { flexDirection: "row", marginTop: 48 },
-  registerNormal: { fontSize: 12, color: "#555", marginRight: 5 },
-  registerText: { fontSize: 12, color: "#D71920", fontWeight: "500" },
-
-  mainContainer: { flex: 1, backgroundColor: "#F9FAFB" },
-  screenContainer: {
+  mainContainer: {
     flex: 1,
     backgroundColor: "#F9FAFB",
-    paddingHorizontal: 18,
-    paddingTop: 48,
-    paddingBottom: 70,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 40,
+  },
+  screenContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 60,
+  },
+  loginContainer: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "#FFF",
+  },
+  logoWrapper: {
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  loginLogo: {
+    width: 100,
+    height: 100,
+  },
+  loginTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    textAlign: "center",
+    color: "#DC2626",
+    marginBottom: 24,
+  },
+  loginInput: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 12,
+    backgroundColor: "#F9FAFB",
+  },
+  forgotButton: {
+    alignSelf: "flex-end",
+    marginBottom: 20,
+  },
+  forgotText: {
+    color: "#2196F3",
+    fontSize: 14,
+  },
+  loginButton: {
+    backgroundColor: "#DC2626",
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  loginButtonText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  registerContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 20,
+  },
+  registerNormal: {
+    color: "#6B7280",
+  },
+  registerText: {
+    color: "#2196F3",
+    fontWeight: "bold",
+    marginLeft: 4,
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  headerBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#111827",
+  },
+  areaCard: {
+    flexDirection: "row",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  areaCardIcon: {
+    marginRight: 16,
+  },
+  areaCardInfo: {
+    flex: 1,
+  },
+  areaCardTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#111827",
+  },
+  areaCardSubText: {
+    fontSize: 14,
+    color: "#4B5563",
+    marginTop: 2,
+  },
+  statusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    borderRadius: 8,
     marginBottom: 16,
   },
-  headerBackBtn: { flexDirection: "row", alignItems: "center" },
-  headerTitle: { fontSize: 22, fontWeight: "bold", color: "#111827" },
-
-  areaCard: {
-    width: "100%",
-    height: 65,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  areaCardIcon: { marginRight: 14 },
-  areaCardInfo: { flex: 1 },
-  areaCardTitle: { fontSize: 15, fontWeight: "bold", color: "#111" },
-  areaCardSubText: { fontSize: 13, color: "#444", marginTop: 2 },
-
-  statusBanner: {
-    width: "100%",
-    height: 55,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 25,
-  },
-  statusBannerText: { fontSize: 18, fontWeight: "bold", marginLeft: 8 },
-
-  sosSentBanner: {
-    width: "100%",
-    height: 48,
-    backgroundColor: "#FEE2E2",
-    borderRadius: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  sosSentText: {
-    fontSize: 15,
+  statusBannerText: {
     fontWeight: "bold",
-    color: "#DC2626",
+    fontSize: 16,
     marginLeft: 8,
   },
-
-  sensorBox: { backgroundColor: "#FFF", borderRadius: 12, padding: 10, marginBottom: 30 },
-  sensorRow: {
+  sosSentBanner: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  sensorName: { fontSize: 15, color: "#111", marginLeft: 12, flex: 1 },
-  sensorValue: { fontSize: 15, color: "#111", fontWeight: "500" },
-
-  fireBtn: {
-    width: "100%",
-    height: 52,
-    backgroundColor: "#D71920",
-    borderRadius: 26,
-    alignItems: "center",
     justifyContent: "center",
-    marginTop: 10,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    backgroundColor: "#FEE2E2",
   },
-  fireBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "bold" },
-
-  // STYLES MÀN HÌNH THIẾT BỊ NÂNG CẤP
-  addDeviceBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#EFF6FF",
-    justifyContent: "center",
-    alignItems: "center",
+  sosSentText: {
+    color: "#DC2626",
+    fontWeight: "bold",
+    fontSize: 16,
+    marginLeft: 8,
   },
-  overviewCard: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
+  sensorBox: {
+    backgroundColor: "#FFF",
     borderRadius: 12,
-    paddingVertical: 16,
+    padding: 16,
     marginBottom: 20,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  overviewItem: { flex: 1, alignItems: "center" },
-  overviewNum: { fontSize: 20, fontWeight: "bold", color: "#111827" },
-  overviewLabel: { fontSize: 12, color: "#6B7280", marginTop: 4 },
-  overviewDivider: { width: 1, backgroundColor: "#E5E7EB" },
-
-  sectionTitle: {
+  sensorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  sensorName: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 15,
+    color: "#374151",
+  },
+  sensorValue: {
     fontSize: 15,
     fontWeight: "bold",
-    color: "#374151",
+    color: "#111827",
+  },
+  fireBtn: {
+    backgroundColor: "#DC2626",
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  fireBtnText: {
+    color: "#FFF",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    marginTop: 60,
+  },
+  emptyText: {
+    marginTop: 12,
+    color: "#6B7280",
+    fontSize: 16,
+  },
+  historyCard: {
+    backgroundColor: "#FFF",
+    padding: 14,
+    borderRadius: 10,
     marginBottom: 10,
-    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  historyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  historyTitle: {
+    fontWeight: "bold",
+    fontSize: 15,
+    marginLeft: 6,
+    color: "#111827",
+  },
+  historyDetail: {
+    color: "#4B5563",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  historyTime: {
+    color: "#9CA3AF",
+    fontSize: 12,
+  },
+  addDeviceBtn: {
+    padding: 6,
+  },
+  overviewCard: {
+    flexDirection: "row",
+    backgroundColor: "#FFF",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    justifyContent: "space-around",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  overviewItem: {
+    alignItems: "center",
+  },
+  overviewNum: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#111827",
+  },
+  overviewLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  overviewDivider: {
+    width: 1,
+    backgroundColor: "#E5E7EB",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#374151",
+    marginVertical: 10,
   },
   deviceDetailedCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF",
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 14,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
@@ -1121,12 +1293,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    paddingBottom: 10,
+    marginBottom: 10,
   },
-  deviceTitleRow: { flexDirection: "row", alignItems: "center" },
-  deviceCardName: { fontSize: 16, fontWeight: "bold", color: "#1F2937", marginLeft: 8 },
+  deviceTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  deviceCardName: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginLeft: 8,
+    color: "#111827",
+  },
   statusBadgeSmall: {
     flexDirection: "row",
     alignItems: "center",
@@ -1134,63 +1312,95 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  dotStatus: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
-  statusBadgeTextSmall: { fontSize: 12, fontWeight: "600" },
-
-  deviceDetailBody: { paddingVertical: 10 },
+  dotStatus: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  statusBadgeTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  deviceDetailBody: {
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#F3F4F6",
+  },
   deviceInfoItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginVertical: 3,
   },
-  deviceInfoLabel: { fontSize: 13, color: "#6B7280" },
-  deviceInfoVal: { fontSize: 13, fontWeight: "500", color: "#374151" },
-
+  deviceInfoLabel: {
+    color: "#6B7280",
+    fontSize: 13,
+  },
+  deviceInfoVal: {
+    color: "#111827",
+    fontSize: 13,
+    fontWeight: "500",
+  },
   deviceCardFooter: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    paddingTop: 10,
-    marginTop: 4,
+    marginTop: 10,
   },
   deviceActionBtn: {
     flexDirection: "row",
     alignItems: "center",
     marginLeft: 16,
   },
-  deviceActionText: { fontSize: 13, color: "#4B5563", marginLeft: 4, fontWeight: "500" },
-
-  // STYLES MÀN HÌNH TÀI KHOẢN NÂNG CẤP
+  deviceActionText: {
+    fontSize: 13,
+    color: "#4B5563",
+    marginLeft: 4,
+  },
   profileCard: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
+    backgroundColor: "#FFF",
     padding: 16,
-    marginBottom: 20,
+    borderRadius: 12,
+    marginBottom: 16,
+    alignItems: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  avatarContainer: { marginRight: 14 },
-  profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: "bold", color: "#111827" },
-  profileEmail: { fontSize: 13, color: "#6B7280", marginTop: 2 },
+  avatarContainer: {
+    marginRight: 12,
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111827",
+  },
+  profileEmail: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
   roleTag: {
     backgroundColor: "#EFF6FF",
     alignSelf: "flex-start",
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 4,
     marginTop: 6,
   },
-  roleTagText: { fontSize: 11, color: "#2196F3", fontWeight: "600" },
-
+  roleTagText: {
+    color: "#2196F3",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
   settingsGroup: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF",
     borderRadius: 12,
-    paddingHorizontal: 16,
-    marginBottom: 20,
+    paddingHorizontal: 14,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
@@ -1210,59 +1420,102 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
-  settingRowLeft: { flexDirection: "row", alignItems: "center" },
-  settingRowText: { fontSize: 14, color: "#374151", marginLeft: 12, fontWeight: "500" },
-  settingValText: { fontSize: 14, color: "#6B7280" },
-  rowRightWithChevron: { flexDirection: "row", alignItems: "center" },
-
+  settingRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  settingRowText: {
+    fontSize: 15,
+    marginLeft: 10,
+    color: "#374151",
+  },
+  settingValText: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  rowRightWithChevron: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   logoutFullButton: {
     flexDirection: "row",
-    backgroundColor: "#FEE2E2",
-    height: 50,
-    borderRadius: 12,
-    alignItems: "center",
     justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    paddingVertical: 14,
+    borderRadius: 10,
     marginTop: 10,
   },
-  logoutFullText: { color: "#DC2626", fontWeight: "bold", fontSize: 15, marginLeft: 8 },
-
-  // MODAL STYLES
+  logoutFullText: {
+    color: "#DC2626",
+    fontWeight: "bold",
+    fontSize: 15,
+    marginLeft: 8,
+  },
+  bottomMenu: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+    backgroundColor: "#FFF",
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
+  bottomButton: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
   },
   modalCard: {
     width: "100%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    padding: 20,
     alignItems: "center",
   },
   sosBadge: {
-    width: 50,
-    height: 28,
     backgroundColor: "#DC2626",
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
     marginBottom: 12,
   },
-  sosBadgeText: { color: "#FFF", fontWeight: "bold", fontSize: 13 },
+  sosBadgeText: {
+    color: "#FFF",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
   modalTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#111",
-    marginBottom: 10,
+    color: "#111827",
+    marginBottom: 8,
   },
   modalMessage: {
-    fontSize: 13,
-    color: "#666",
+    fontSize: 14,
+    color: "#4B5563",
     textAlign: "center",
-    lineHeight: 18,
-    marginBottom: 22,
+    marginBottom: 16,
+  },
+  modalInput: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    marginBottom: 16,
   },
   modalBtnRow: {
     flexDirection: "row",
@@ -1271,50 +1524,26 @@ const styles = StyleSheet.create({
   },
   modalCancelBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
+    paddingVertical: 12,
+    marginRight: 8,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
   },
-  modalCancelText: { color: "#374151", fontWeight: "600", fontSize: 14 },
+  modalCancelText: {
+    color: "#374151",
+    fontWeight: "bold",
+  },
   modalConfirmBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#DC2626",
+    paddingVertical: 12,
+    marginLeft: 8,
+    borderRadius: 8,
+    backgroundColor: "#2196F3",
     alignItems: "center",
-    justifyContent: "center",
   },
-  modalConfirmText: { color: "#FFF", fontWeight: "600", fontSize: 14 },
-
-  historyCard: {
-    backgroundColor: "#FFF",
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 10,
-    marginBottom: 10,
+  modalConfirmText: {
+    color: "#FFF",
+    fontWeight: "bold",
   },
-  historyHeader: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  historyTitle: { fontWeight: "bold", marginLeft: 8, fontSize: 15, color: "#111827" },
-  historyDetail: { fontSize: 13, color: "#4B5563" },
-  historyTime: { fontSize: 12, color: "#9CA3AF", marginTop: 4 },
-  emptyContainer: { alignItems: "center", marginTop: 60 },
-  emptyText: { color: "#6B7280", marginTop: 10, fontSize: 15 },
-
-  bottomMenu: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 60,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: "#EEEEEE",
-  },
-  bottomButton: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
