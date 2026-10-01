@@ -22,6 +22,8 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { ref, onValue } from "firebase/database";
 import { Ionicons } from "@expo/vector-icons";
@@ -104,7 +106,7 @@ export default function App() {
 
   // Đồng hồ thời gian thực
   const [currentTime, setCurrentTime] = useState(
-    new Date().toLocaleString("vi-VN")
+    new Date().toLocaleString("vi-VN"),
   );
 
   useEffect(() => {
@@ -174,11 +176,11 @@ export default function App() {
       name: "Nhà bếp",
       deviceCode: "ESP32_002",
       icon: "restaurant-outline",
-      gas: 1200,
+      gas: 120,
       temperature: 26,
       flame: false,
       online: true,
-      statusType: "gas",
+      statusType: "normal",
       statusText: "Phát hiện khí gas",
       sosSent: false,
       wifiSignal: "Tốt (72%)",
@@ -192,12 +194,12 @@ export default function App() {
       gas: 0,
       temperature: 28,
       flame: false,
-      online: true,
+      online: false,
       statusType: "normal",
-      statusText: "An toàn",
+      statusText: "Mất kết nối",
       sosSent: false,
-      wifiSignal: "Trung bình (55%)",
-      ipAddress: "192.168.1.103",
+      wifiSignal: "Không có",
+      ipAddress: "N/A",
     },
     {
       id: "ESP32_004",
@@ -218,7 +220,7 @@ export default function App() {
 
   const [selectedArea, setSelectedArea] = useState(null);
   const [historyData, setHistoryData] = useState([]);
-
+  const lastAlertRef = useRef(null);
   // Xử lý đăng nhập
   const handleLogin = async () => {
     if (email.trim() === "") {
@@ -247,42 +249,96 @@ export default function App() {
     }
   };
 
-  // Realtime Database Listener
+  const saveAlertHistory = async ({
+    type,
+    gas,
+    temperature,
+    flame,
+    online,
+  }) => {
+    try {
+      await addDoc(collection(db, "alert_history"), {
+        type: type,
+        gas: gas,
+        temperature: temperature,
+        flame: flame,
+        esp32: online,
+        timestamp: serverTimestamp(),
+      });
+
+      console.log("Đã lưu lịch sử:", type);
+    } catch (error) {
+      console.log("Lỗi lưu lịch sử:", error);
+    }
+  };
+
+  // =====================================================
+  // REALTIME DATABASE LISTENER
+  // =====================================================
   useEffect(() => {
     if (!isLoggedIn) return;
 
     const systemRef = ref(rtdb, "HeThong");
-    const unsubscribe = onValue(systemRef, (snapshot) => {
+
+    const unsubscribe = onValue(systemRef, async (snapshot) => {
       const data = snapshot.val();
+
       if (!data) return;
 
       const sensor = data.ThongSo_CamBien ?? {};
       const device = data.TinhTrang_ThietBi ?? {};
 
       let hasEmergency = false;
+      let alertType = null;
 
+      // ================================
+      // ĐỌC DỮ LIỆU CẢM BIẾN
+      // ================================
+      const gasVal = sensor.NongDo_Gas_ADC ?? 0;
+      const tempVal = sensor.NhietDo_C ?? 0;
+      const flameVal = sensor.PhatHienLua ?? false;
+      const isOnline = device.ESP32 === "Online";
+
+      // ================================
+      // XÁC ĐỊNH MỨC CẢNH BÁO
+      // ================================
+
+      // 1. Có lửa -> CHÁY
+      if (flameVal === true) {
+        alertType = "fire";
+        hasEmergency = true;
+      }
+
+      // 2. Nhiệt độ + Gas cao -> CHÁY
+      else if (tempVal > 55 && gasVal > 1000) {
+        alertType = "fire";
+        hasEmergency = true;
+      }
+
+      // 3. Gas >= 300 -> GAS
+      else if (gasVal >= 300) {
+        alertType = "gas";
+        hasEmergency = true;
+      }
+
+      // ================================
+      // CẬP NHẬT CÁC KHU VỰC
+      // ================================
       setAreas((prevAreas) =>
         prevAreas.map((area) => {
           if (
             area.deviceCode === "ESP32_002" ||
             area.deviceCode === "ESP32_001"
           ) {
-            const gasVal = sensor.NongDo_Gas_ADC ?? area.gas;
-            const tempVal = sensor.NhietDo_C ?? area.temperature;
-            const flameVal = sensor.PhatHienLua ?? area.flame;
-            const isOnline = device.ESP32 === "Online";
-
             let sType = "normal";
             let sText = "An toàn";
 
             if (flameVal || (tempVal > 55 && gasVal > 1000)) {
               sType = "fire";
               sText = "Cảnh báo cháy";
-              hasEmergency = true;
             } else if (gasVal >= 300) {
               sType = "gas";
               sText = "Phát hiện khí gas";
-              hasEmergency = true;
             }
 
             return {
@@ -295,10 +351,37 @@ export default function App() {
               statusText: sText,
             };
           }
+
           return area;
-        })
+        }),
       );
 
+      // ================================
+      // LƯU LỊCH SỬ FIRESTORE
+      // ================================
+
+      if (alertType) {
+        // Chỉ lưu khi trạng thái cảnh báo thay đổi
+        if (lastAlertRef.current !== alertType) {
+          lastAlertRef.current = alertType;
+
+          await saveAlertHistory({
+            type: alertType,
+            gas: gasVal,
+            temperature: tempVal,
+            flame: flameVal,
+            online: isOnline,
+          });
+        }
+      } else {
+        // Khi trở lại bình thường,
+        // cho phép lần cảnh báo tiếp theo được lưu
+        lastAlertRef.current = null;
+      }
+
+      // ================================
+      // ÂM THANH CẢNH BÁO
+      // ================================
       if (hasEmergency && soundAlert) {
         playAlarmSound();
       } else {
@@ -316,7 +399,7 @@ export default function App() {
     const q = query(
       collection(db, "alert_history"),
       orderBy("timestamp", "desc"),
-      limit(50)
+      limit(50),
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -347,8 +430,8 @@ export default function App() {
     if (selectedArea) {
       setAreas((prev) =>
         prev.map((item) =>
-          item.id === selectedArea.id ? { ...item, sosSent: true } : item
-        )
+          item.id === selectedArea.id ? { ...item, sosSent: true } : item,
+        ),
       );
       setSelectedArea((prev) => (prev ? { ...prev, sosSent: true } : null));
     }
@@ -396,12 +479,23 @@ export default function App() {
   const renderAreaListScreen = () => (
     <View style={styles.screenContainer}>
       <ScreenHeader title="Trang chủ" />
+
       <ScrollView showsVerticalScrollIndicator={false}>
         {areas.map((area) => {
           let cardBg = "#DDF7E3";
           let iconColor = "#2E7D32";
 
-          if (area.statusType === "gas") {
+          // =========================
+          // THIẾT BỊ OFFLINE
+          // =========================
+          if (!area.online) {
+            cardBg = "#D1D5DB";
+            iconColor = "#6B7280";
+          }
+          // =========================
+          // THIẾT BỊ ONLINE
+          // =========================
+          else if (area.statusType === "gas") {
             cardBg = "#FFE8A3";
             iconColor = "#D97706";
           } else if (area.statusType === "fire") {
@@ -412,7 +506,12 @@ export default function App() {
           return (
             <TouchableOpacity
               key={area.id}
-              style={[styles.areaCard, { backgroundColor: cardBg }]}
+              style={[
+                styles.areaCard,
+                {
+                  backgroundColor: cardBg,
+                },
+              ]}
               onPress={() => {
                 setSelectedArea(area);
                 setCurrentScreen("areaDetail");
@@ -426,7 +525,15 @@ export default function App() {
                 <Text style={styles.areaCardTitle}>
                   {area.name} ({area.deviceCode})
                 </Text>
-                <Text style={styles.areaCardSubText}>{area.statusText}</Text>
+
+                <Text
+                  style={[
+                    styles.areaCardSubText,
+                    !area.online && { color: "#6B7280" },
+                  ]}
+                >
+                  {area.online ? area.statusText : "Thiết bị Offline"}
+                </Text>
               </View>
             </TouchableOpacity>
           );
@@ -542,7 +649,11 @@ export default function App() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {historyData.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="checkmark-circle-outline" size={60} color="#16A34A" />
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={60}
+              color="#16A34A"
+            />
             <Text style={styles.emptyText}>Chưa có lịch sử cảnh báo nào</Text>
           </View>
         ) : (
@@ -559,7 +670,9 @@ export default function App() {
               <Text style={styles.historyDetail}>
                 Khí Gas: {item.gas} ppm | Nhiệt độ: {item.temperature} °C
               </Text>
-              <Text style={styles.historyTime}>Thời gian: {item.formattedTime}</Text>
+              <Text style={styles.historyTime}>
+                Thời gian: {item.formattedTime}
+              </Text>
             </View>
           ))
         )}
@@ -578,7 +691,12 @@ export default function App() {
           rightElement={
             <TouchableOpacity
               style={styles.addDeviceBtn}
-              onPress={() => Alert.alert("Thông báo", "Chức năng quét mã QR / Thêm thiết bị mới.")}
+              onPress={() =>
+                Alert.alert(
+                  "Thông báo",
+                  "Chức năng quét mã QR / Thêm thiết bị mới.",
+                )
+              }
             >
               <Ionicons name="add" size={22} color="#2196F3" />
             </TouchableOpacity>
@@ -664,7 +782,7 @@ export default function App() {
                   onPress={() =>
                     Alert.alert(
                       "Cấu hình thiết bị",
-                      `Đang khởi động lại ${area.deviceCode}...`
+                      `Đang khởi động lại ${area.deviceCode}...`,
                     )
                   }
                 >
@@ -679,7 +797,11 @@ export default function App() {
                     setCurrentScreen("areaDetail");
                   }}
                 >
-                  <Ionicons name="stats-chart-outline" size={16} color="#2196F3" />
+                  <Ionicons
+                    name="stats-chart-outline"
+                    size={16}
+                    color="#2196F3"
+                  />
                   <Text style={[styles.deviceActionText, { color: "#2196F3" }]}>
                     Xem thông số
                   </Text>
@@ -715,7 +837,11 @@ export default function App() {
         <View style={styles.settingsGroup}>
           <View style={styles.settingRow}>
             <View style={styles.settingRowLeft}>
-              <Ionicons name="notifications-outline" size={20} color="#2196F3" />
+              <Ionicons
+                name="notifications-outline"
+                size={20}
+                color="#2196F3"
+              />
               <Text style={styles.settingRowText}>Thông báo đẩy (Push)</Text>
             </View>
             <Switch
@@ -802,7 +928,9 @@ export default function App() {
 
           <TouchableOpacity
             style={styles.settingRowClickable}
-            onPress={() => Alert.alert("Hướng dẫn", "Mở tài liệu hướng dẫn sử dụng hệ thống")}
+            onPress={() =>
+              Alert.alert("Hướng dẫn", "Mở tài liệu hướng dẫn sử dụng hệ thống")
+            }
           >
             <View style={styles.settingRowLeft}>
               <Ionicons name="help-circle-outline" size={20} color="#2196F3" />
@@ -813,7 +941,11 @@ export default function App() {
 
           <View style={styles.settingRowClickable}>
             <View style={styles.settingRowLeft}>
-              <Ionicons name="information-circle-outline" size={20} color="#2196F3" />
+              <Ionicons
+                name="information-circle-outline"
+                size={20}
+                color="#2196F3"
+              />
               <Text style={styles.settingRowText}>Phiên bản ứng dụng</Text>
             </View>
             <Text style={styles.settingValText}>v1.0.4</Text>
@@ -934,7 +1066,8 @@ export default function App() {
 
             <Text style={styles.modalTitle}>Xác nhận báo cháy</Text>
             <Text style={styles.modalMessage}>
-              Hệ thống sẽ thực hiện cuộc gọi khẩn cấp đến SĐT người thân ({emergencyPhone}).
+              Hệ thống sẽ thực hiện cuộc gọi khẩn cấp đến SĐT người thân (
+              {emergencyPhone}).
             </Text>
 
             <View style={styles.modalBtnRow}>
