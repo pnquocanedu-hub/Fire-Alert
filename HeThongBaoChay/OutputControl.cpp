@@ -367,7 +367,7 @@ void Task_OutputControl(void *pvParameters)
                     RELAY_ON
                 );
 
-                // Buzzer nhanh hơn - 100 ms
+                /* Buzzer nhanh hơn - 100 ms
                 if (now - lastBuzzerMillis >= 100)
                 {
                     lastBuzzerMillis = now;
@@ -380,7 +380,7 @@ void Task_OutputControl(void *pvParameters)
                             ? BUZZER_ON
                             : BUZZER_OFF
                     );
-                }
+                }*/
 
                 break;
 
@@ -508,4 +508,3 @@ void Task_OutputControl(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
-

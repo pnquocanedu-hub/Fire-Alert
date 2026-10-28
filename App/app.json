@@ -11,6 +11,14 @@
     },
     "plugins": [
       "expo-audio"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ee7a9dbd-21c1-46cf-ab5c-dab867659028"
+      }
+    },
+    "android": {
+      "package": "com.quocan06.myprojet"
+    }
   }
 }

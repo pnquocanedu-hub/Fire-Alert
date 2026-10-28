@@ -142,6 +142,8 @@ void Task_Firebase(void *pvParameters)
 
     SystemState lastUploadedState = SAFE;
 
+    FlameState lastUploadedFlame = FLAME_NONE;
+
     bool lastUploadedRelayError = false;
 
     bool initialUploadDone = false;
@@ -178,288 +180,250 @@ void Task_Firebase(void *pvParameters)
         // FIREBASE READY
         // =================================================
 
-        if (Firebase.ready())
+      if (Firebase.ready())
+{
+    // =================================================
+    // COPY TRẠNG THÁI HIỆN TẠI
+    // =================================================
+
+    SystemState state = currentState;
+    FlameState flame = flameState;
+
+    // =================================================
+    // KIỂM TRA THAY ĐỔI
+    // =================================================
+
+    bool flameChanged =
+        (flame != lastUploadedFlame);
+
+    bool stateChanged =
+        (state != lastUploadedState) ||
+        (relayError != lastUploadedRelayError);
+
+    // =================================================
+    // UPDATE INTERVAL
+    // =================================================
+
+    unsigned long updateInterval =
+        (state == SAFE)
+            ? FIREBASE_SAFE_UPDATE_INTERVAL
+            : FIREBASE_EMERGENCY_UPDATE_INTERVAL;
+
+    bool timeToUpdate =
+        (now - lastFirebaseUpdate >= updateInterval);
+
+    // =================================================
+    // QUYẾT ĐỊNH GỬI
+    // =================================================
+
+    if (
+        stateChanged ||
+        flameChanged ||
+        timeToUpdate ||
+        !initialUploadDone
+    )
+    {
+        lastFirebaseUpdate = now;
+
+        // =============================================
+        // COPY SENSOR DATA
+        // =============================================
+
+        float temp = tempValue;
+        int gas = gasValue;
+        float ppm = gasPPM;
+        bool mq2 = mq2Ready;
+        bool isErr = sensorError;
+
+        // =============================================
+        // RELAY STATUS
+        // =============================================
+
+        bool pumpStatus =
+            (
+                state == FIRE_WARNING ||
+                state == CRITICAL_DANGER
+            );
+
+        // =============================================
+        // JSON
+        // =============================================
+
+        FirebaseJson json;
+
+        // SENSOR
+        json.set(
+            "ThongSo_CamBien/NhietDo_C",
+            temp
+        );
+
+        json.set(
+            "ThongSo_CamBien/NongDo_Gas_ppm",
+            ppm
+        );
+
+        json.set(
+            "ThongSo_CamBien/NongDo_Gas_ADC",
+            gas
+        );
+
+        json.set(
+            "ThongSo_CamBien/PhatHienLua",
+            (flame == FLAME_CONFIRMED)
+        );
+
+        json.set(
+            "ThongSo_CamBien/TrangThai_Lua",
+            getFlameStateString(flame)
+        );
+
+        // SYSTEM
+        json.set(
+            "TrangThai_HeThong/MucDoCanhBao",
+            getStateString(state)
+        );
+
+        json.set(
+            "TrangThai_HeThong/BomNuoc_Relay",
+            pumpStatus
+        );
+
+        json.set(
+            "TrangThai_HeThong/Heartbeat_Uptime_ms",
+            (double)now
+        );
+
+        // DEVICE
+        json.set(
+            "TinhTrang_ThietBi/ESP32",
+            "Online"
+        );
+
+        // DS18B20
+        if (isErr)
         {
-            SystemState state = currentState;
-
-            // =================================================
-            // STATE CHANGE
-            // =================================================
-
-            bool stateChanged =
-                (state != lastUploadedState) ||
-                (relayError != lastUploadedRelayError);
-
-            // =================================================
-            // UPDATE INTERVAL
-            // =================================================
-
-            unsigned long updateInterval =
-                (state == SAFE)
-                    ? FIREBASE_SAFE_UPDATE_INTERVAL
-                    : FIREBASE_EMERGENCY_UPDATE_INTERVAL;
-
-            bool timeToUpdate =
-                (now - lastFirebaseUpdate >= updateInterval);
-
-            // =================================================
-            // QUYẾT ĐỊNH GỬI
-            // =================================================
-
-            if (
-                stateChanged ||
-                timeToUpdate ||
-                !initialUploadDone
-            )
-            {
-                // ---------------------------------------------
-                // UPDATE TIMER
-                // ---------------------------------------------
-
-                lastFirebaseUpdate = now;
-
-                lastUploadedState = state;
-
-                lastUploadedRelayError = relayError;
-
-                initialUploadDone = true;
-
-                // =============================================
-                // COPY SENSOR DATA
-                // =============================================
-
-                float temp = tempValue;
-                int gas = gasValue;
-                float ppm = gasPPM;
-                FlameState flame = flameState;
-                bool mq2 = mq2Ready;
-                bool isErr = sensorError;
-
-                // =============================================
-                // RELAY STATUS
-                // =============================================
-
-                bool pumpStatus =
-                    (
-                        state == FIRE_WARNING ||
-                        state == CRITICAL_DANGER
-                    );
-
-                // =============================================
-                // JSON
-                // =============================================
-
-                FirebaseJson json;
-
-                // =============================================
-                // 1. SENSOR DATA
-                // =============================================
-
-                json.set(
-                    "ThongSo_CamBien/NhietDo_C",
-                    temp
-                );
-
-                json.set(
-                    "ThongSo_CamBien/NongDo_Gas_ppm",
-                    ppm
-                );
-
-                json.set(
-                    "ThongSo_CamBien/NongDo_Gas_ADC",
-                    gas
-                );
-
-                json.set(
-                    "ThongSo_CamBien/PhatHienLua",
-                    (flame == FLAME_CONFIRMED)
-                );
-
-                json.set(
-                    "ThongSo_CamBien/TrangThai_Lua",
-                    getFlameStateString(flame)
-                );
-
-                // =============================================
-                // 2. SYSTEM STATUS
-                // =============================================
-
-                json.set(
-                    "TrangThai_HeThong/MucDoCanhBao",
-                    getStateString(state)
-                );
-
-                json.set(
-                    "TrangThai_HeThong/BomNuoc_Relay",
-                    pumpStatus
-                );
-
-                json.set(
-                    "TrangThai_HeThong/Heartbeat_Uptime_ms",
-                    (double)now
-                );
-
-                // =============================================
-                // 3. DEVICE STATUS
-                // =============================================
-
-                json.set(
-                    "TinhTrang_ThietBi/ESP32",
-                    "Online"
-                );
-
-                // =============================================
-                // DS18B20
-                // =============================================
-
-                if (isErr)
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/DS18B20",
-                        "Loi/Mất ket noi"
-                    );
-                }
-                else
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/DS18B20",
-                        "Hoat dong"
-                    );
-                }
-
-                // =============================================
-                // MQ-2
-                // =============================================
-
-                if (!mq2)
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/MQ2",
-                        "Dang khoi dong"
-                    );
-                }
-                else if (gas <= 10)
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/MQ2",
-                        "Loi/Mất ket noi"
-                    );
-                }
-                else
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/MQ2",
-                        "Hoat dong"
-                    );
-                }
-
-                // =============================================
-                // FLAME
-                // =============================================
-
-                json.set(
-                    "TinhTrang_ThietBi/Flame",
-                    "Hoat dong"
-                );
-
-                // =============================================
-                // BUZZER
-                // =============================================
-
-                json.set(
-                    "TinhTrang_ThietBi/Buzzer",
-                    "Hoat dong"
-                );
-
-                // =============================================
-                // RELAY
-                // =============================================
-
-                if (relayError)
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/Relay",
-                        "Loi/Ket Relay"
-                    );
-                }
-                else
-                {
-                    json.set(
-                        "TinhTrang_ThietBi/Relay",
-                        "Hoat dong"
-                    );
-                }
-
-                // =============================================
-                // LOG
-                // =============================================
-
-                if (stateChanged)
-                {
-                    Serial.print(
-                        "[Firebase EVENT] State changed to: "
-                    );
-
-                    Serial.println(
-                        getStateString(state)
-                    );
-
-                    if (relayError)
-                    {
-                        Serial.println(
-                            "[Firebase EVENT] Relay ERROR detected"
-                        );
-                    }
-                }
-
-                // =============================================
-                // SEND JSON
-                // =============================================
-
-                Serial.println("[Firebase] Uploading data...");
-
-                if (
-                    Firebase.RTDB.setJSON(
-                        &fbdo,
-                        "HeThong",
-                        &json
-                    )
-                )
-                {
-                    Serial.println(
-                        "[Firebase] Update SUCCESS"
-                    );
-                }
-                else
-                {
-                    Serial.print(
-                        "[Firebase] ERROR: "
-                    );
-
-                    Serial.println(
-                        fbdo.errorReason()
-                    );
-                }
-
-                // Nhuong CPU ngay sau giao dich HTTPS nang
-                vTaskDelay(pdMS_TO_TICKS(50));
-            }
+            json.set(
+                "TinhTrang_ThietBi/DS18B20",
+                "Loi/Mất ket noi"
+            );
         }
         else
         {
-            // Firebase chưa lấy được token
-            static unsigned long lastNotReadyLog = 0;
-
-            if (now - lastNotReadyLog >= 5000)
-            {
-                lastNotReadyLog = now;
-
-                Serial.println(
-                    "[Firebase] NOT READY - waiting for authentication..."
-                );
-            }
+            json.set(
+                "TinhTrang_ThietBi/DS18B20",
+                "Hoat dong"
+            );
         }
 
+        // MQ2
+        if (!mq2)
+        {
+            json.set(
+                "TinhTrang_ThietBi/MQ2",
+                "Dang khoi dong"
+            );
+        }
+        else if (gas <= 10)
+        {
+            json.set(
+                "TinhTrang_Thiet_Bi/MQ2",
+                "Loi/Mất ket noi"
+            );
+        }
+        else
+        {
+            json.set(
+                "TinhTrang_Thiet_Bi/MQ2",
+                "Hoat dong"
+            );
+        }
+
+        // FLAME
+        json.set(
+            "TinhTrang_ThietBi/Flame",
+            "Hoat dong"
+        );
+
+        // BUZZER
+        json.set(
+            "TinhTrang_ThietBi/Buzzer",
+            "Hoat dong"
+        );
+
+        // RELAY
+        if (relayError)
+        {
+            json.set(
+                "TinhTrang_ThietBi/Relay",
+                "Loi/Ket Relay"
+            );
+        }
+        else
+        {
+            json.set(
+                "TinhTrang_ThietBi/Relay",
+                "Hoat dong"
+            );
+        }
+
+        // =============================================
+        // LOG
+        // =============================================
+
+        if (flameChanged)
+        {
+            Serial.print("[Firebase EVENT] Flame changed: ");
+            Serial.println(getFlameStateString(flame));
+        }
+
+        if (stateChanged)
+        {
+            Serial.print("[Firebase EVENT] State changed: ");
+            Serial.println(getStateString(state));
+        }
+
+        // =============================================
+        // SEND FIREBASE
+        // =============================================
+
+        Serial.println("[Firebase] Uploading data...");
+
+        if (
+            Firebase.RTDB.setJSON(
+                &fbdo,
+                "HeThong",
+                &json
+            )
+        )
+        {
+            Serial.println(
+                "[Firebase] Update SUCCESS"
+            );
+
+            // =========================================
+            // CHỈ ĐÁNH DẤU SAU KHI UPLOAD THÀNH CÔNG
+            // =========================================
+
+            lastUploadedState = state;
+            lastUploadedFlame = flame;
+            lastUploadedRelayError = relayError;
+
+            initialUploadDone = true;
+        }
+        else
+        {
+            Serial.print(
+                "[Firebase] ERROR: "
+            );
+
+            Serial.println(
+                fbdo.errorReason()
+            );
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
         // =================================================
         // NHƯỜNG CPU
         // =================================================

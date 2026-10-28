@@ -5,11 +5,11 @@
 // 1. WIFI & FIREBASE
 // =====================================================
 
-#define WIFI_SSID "Tren Lau"
-#define WIFI_PASSWORD "trenlaune"
+#define WIFI_SSID "Nhom 2k"
+#define WIFI_PASSWORD "Thankyou"
 
-#define API_KEY "AIzaSyDZOELrOa9LLPWPRgOnbwTByoHd4NyIJAY"
-#define DATABASE_URL "https://baochay-bc24f-default-rtdb.firebaseio.com/"
+#define API_KEY "AIzaSyBmVhS3h9C-ONzy3kwXxW4Mcic6TgtF06g"
+#define DATABASE_URL "https://firealert-36d12-default-rtdb.firebaseio.com"
 
 // =====================================================
 // 2. LOGIC PHẦN CỨNG
@@ -57,8 +57,8 @@
 // =====================================================
 
 // Khí gas / khói (MQ-2, đơn vị ppm)
-#define GAS_WARNING_PPM 500.0f     // Ngưỡng bắt đầu cảnh báo gas
-#define GAS_DANGER_PPM 2000.0f     // Ngưỡng gas cao (dùng cho TH2)
+#define GAS_WARNING_PPM 1000.0f     // Ngưỡng bắt đầu cảnh báo gas
+#define GAS_DANGER_PPM 10000.0f     // Ngưỡng gas cao (dùng cho TH2)
 #define GAS_HYSTERESIS_PPM 50.0f   // Vùng trễ chống rung ngưỡng gas (ppm)
 
 // Nhiệt độ (DS18B20)
@@ -110,7 +110,7 @@
 // - KHONG_PHAT_HIEN : không có tín hiệu nào trong cửa sổ quan sát
 
 #define FLAME_SAMPLE_INTERVAL 100UL     // Chu kỳ lấy mẫu cảm biến lửa (ms)
-#define FLAME_CONTINUOUS_MS 2500UL      // Thời gian liên tục để xác nhận có lửa (2-3s)
+#define FLAME_CONTINUOUS_MS 1000UL      // Thời gian liên tục để xác nhận có lửa (2-3s)
 #define FLAME_WINDOW_MS 3000UL          // Cửa sổ quan sát để đánh giá chập chờn (ms)
 #define FLAME_UNSTABLE_MIN_SAMPLES 2    // Số mẫu tối thiểu trong cửa sổ để coi là chập chờn
 
@@ -144,7 +144,7 @@
 #define AUTHOR_PASSWORD "udqh hlke lwbi xpav"
 
 // Email dùng để NHẬN cảnh báo (có thể trùng với AUTHOR_EMAIL)
-#define RECIPIENT_EMAIL "tindepzai14723@gmail.com"
+#define RECIPIENT_EMAIL "pnquocan.edu@gmail.com"
 
 // Bật/tắt tính năng gửi email (đặt false để tắt hoàn toàn nếu chưa cấu hình)
 #define EMAIL_ALERT_ENABLED true

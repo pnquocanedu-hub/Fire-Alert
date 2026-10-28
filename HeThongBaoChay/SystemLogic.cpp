@@ -194,7 +194,7 @@ void Task_LogicControl(void *pvParameters)
         // CÁC TRƯỜNG HỢP CÒN LẠI CÓ TÍN HIỆU BẤT THƯỜNG NHẸ
         // (gas 300-1000 ppm kèm nhiệt độ hơi cao hoặc lửa chập chờn)
         // -------------------------------------------------
-        else if (gasBetween300And1000 || flameUnstable)
+        else if (gasBetween300And1000)
         {
             currentState = GAS_WARNING;
         }

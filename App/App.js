@@ -294,29 +294,23 @@ export default function App() {
       // ================================
       // ĐỌC DỮ LIỆU CẢM BIẾN
       // ================================
-      const gasVal = sensor.NongDo_Gas_ADC ?? 0;
+      const gasVal = sensor.NongDo_Gas_ppm ?? 0;
       const tempVal = sensor.NhietDo_C ?? 0;
-      const flameVal = sensor.PhatHienLua ?? false;
+      const flameVal = sensor.TrangThai_Lua;
+      const flameDetected = flameVal === "Co lua lien tuc";
       const isOnline = device.ESP32 === "Online";
 
       // ================================
       // XÁC ĐỊNH MỨC CẢNH BÁO
       // ================================
 
-      // 1. Có lửa -> CHÁY
-      if (flameVal === true) {
+      if (flameDetected) {
         alertType = "fire";
         hasEmergency = true;
-      }
-
-      // 2. Nhiệt độ + Gas cao -> CHÁY
-      else if (tempVal > 55 && gasVal > 1000) {
+      } else if (tempVal > 55 && gasVal >= 10000) {
         alertType = "fire";
         hasEmergency = true;
-      }
-
-      // 3. Gas >= 300 -> GAS
-      else if (gasVal >= 300) {
+      } else if (gasVal > 1000) {
         alertType = "gas";
         hasEmergency = true;
       }
@@ -333,10 +327,13 @@ export default function App() {
             let sType = "normal";
             let sText = "An toàn";
 
-            if (flameVal || (tempVal > 55 && gasVal > 1000)) {
+            if (flameDetected) {
               sType = "fire";
               sText = "Cảnh báo cháy";
-            } else if (gasVal >= 300) {
+            } else if (tempVal >= 55 && gasVal >= 1000) {
+              sType = "fire";
+              sText = "Cảnh báo cháy";
+            } else if (gasVal > 1000) {
               sType = "gas";
               sText = "Phát hiện khí gas";
             }
@@ -609,10 +606,30 @@ export default function App() {
             </View>
 
             <View style={styles.sensorRow}>
-              <Ionicons name="flame" size={20} color="#DC2626" />
+              <Ionicons
+                name="flame"
+                size={20}
+                color={
+                  currentArea.flame === "Co lua lien tuc"
+                    ? "#DC2626"
+                    : "#16A34A"
+                }
+              />
+
               <Text style={styles.sensorName}>Ngọn lửa</Text>
-              <Text style={styles.sensorValue}>
-                {currentArea.flame ? "Có" : "Không"}
+
+              <Text
+                style={[
+                  styles.sensorValue,
+                  {
+                    color:
+                      currentArea.flame === "Co lua lien tuc"
+                        ? "#DC2626"
+                        : "#16A34A",
+                  },
+                ]}
+              >
+                {currentArea.flame}
               </Text>
             </View>
 
